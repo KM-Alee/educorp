@@ -1,0 +1,144 @@
+http:
+  routers:
+    auth:
+      rule: "PathPrefix(`/api/v1/auth`) || PathPrefix(`/api/v1/admin`)"
+      service: auth-service
+      entryPoints:
+        - web
+      middlewares:
+        - cors
+
+    courses:
+      rule: "PathPrefix(`/api/v1/courses`)"
+      service: course-service
+      entryPoints:
+        - web
+      middlewares:
+        - cors
+
+    enrollments:
+      rule: "PathPrefix(`/api/v1/enrollments`)"
+      service: enrollment-service
+      entryPoints:
+        - web
+      middlewares:
+        - cors
+
+    progress:
+      rule: "PathPrefix(`/api/v1/progress`)"
+      service: progress-service
+      entryPoints:
+        - web
+      middlewares:
+        - cors
+
+    publishing:
+      rule: "PathPrefix(`/api/v1/publishing`)"
+      service: publishing-service
+      entryPoints:
+        - web
+      middlewares:
+        - cors
+
+    ai:
+      rule: "PathPrefix(`/api/v1/ai`)"
+      service: ai-service
+      entryPoints:
+        - web
+      middlewares:
+        - cors
+
+    search:
+      rule: "PathPrefix(`/api/v1/search`)"
+      service: search-service
+      entryPoints:
+        - web
+      middlewares:
+        - cors
+
+    notifications:
+      rule: "PathPrefix(`/api/v1/notifications`)"
+      service: notification-service
+      entryPoints:
+        - web
+      middlewares:
+        - cors
+
+    analytics:
+      rule: "PathPrefix(`/api/v1/analytics`)"
+      service: analytics-service
+      entryPoints:
+        - web
+      middlewares:
+        - cors
+
+  services:
+    auth-service:
+      loadBalancer:
+        servers:
+          - url: "http://auth-service:8000"
+
+    course-service:
+      loadBalancer:
+        servers:
+          - url: "http://course-service:8000"
+
+    enrollment-service:
+      loadBalancer:
+        servers:
+          - url: "http://enrollment-service:8000"
+
+    progress-service:
+      loadBalancer:
+        servers:
+          - url: "http://progress-service:8000"
+
+    publishing-service:
+      loadBalancer:
+        servers:
+          - url: "http://publishing-service:8000"
+
+    ai-service:
+      loadBalancer:
+        servers:
+          - url: "http://ai-service:8000"
+
+    search-service:
+      loadBalancer:
+        servers:
+          - url: "http://search-service:8000"
+
+    notification-service:
+      loadBalancer:
+        servers:
+          - url: "http://notification-service:8000"
+
+    analytics-service:
+      loadBalancer:
+        servers:
+          - url: "http://analytics-service:8000"
+
+  middlewares:
+    cors:
+      headers:
+        accessControlAllowOriginList:
+          - "http://localhost:3001"
+          - "http://localhost:5173"
+        accessControlAllowMethods:
+          - "GET"
+          - "POST"
+          - "PUT"
+          - "PATCH"
+          - "DELETE"
+          - "OPTIONS"
+        accessControlAllowHeaders:
+          - "Content-Type"
+          - "Authorization"
+          - "X-Correlation-Id"
+          - "Idempotency-Key"
+        accessControlMaxAge: 86400
+
+    rate-limit:
+      rateLimit:
+        average: 100
+        burst: 50

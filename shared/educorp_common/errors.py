@@ -1,0 +1,92 @@
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
+
+class EduCorpError(Exception):
+    """Base exception for all EduCorp errors."""
+
+    def __init__(
+        self,
+        code: str = "INTERNAL_ERROR",
+        message: str = "An unexpected error occurred",
+        status_code: int = 500,
+        details: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+        self.details = details or []
+        super().__init__(message)
+
+
+class NotFoundError(EduCorpError):
+    """Resource not found."""
+
+    def __init__(
+        self, message: str = "Resource not found", code: str = "NOT_FOUND"
+    ) -> None:
+        super().__init__(code=code, message=message, status_code=404)
+
+
+class ConflictError(EduCorpError):
+    """Resource conflict."""
+
+    def __init__(
+        self, message: str = "Resource conflict", code: str = "CONFLICT"
+    ) -> None:
+        super().__init__(code=code, message=message, status_code=409)
+
+
+class ForbiddenError(EduCorpError):
+    """Access forbidden."""
+
+    def __init__(
+        self, message: str = "Access forbidden", code: str = "FORBIDDEN"
+    ) -> None:
+        super().__init__(code=code, message=message, status_code=403)
+
+
+class UnauthorizedError(EduCorpError):
+    """Authentication required."""
+
+    def __init__(
+        self, message: str = "Authentication required", code: str = "UNAUTHORIZED"
+    ) -> None:
+        super().__init__(code=code, message=message, status_code=401)
+
+
+class ValidationError(EduCorpError):
+    """Validation error."""
+
+    def __init__(
+        self,
+        message: str = "Validation error",
+        code: str = "VALIDATION_ERROR",
+        details: list[dict[str, Any]] | None = None,
+    ) -> None:
+        super().__init__(
+            code=code, message=message, status_code=422, details=details
+        )
+
+
+def register_exception_handlers(app: FastAPI) -> None:
+    """Register exception handlers for all EduCorp error types."""
+
+    @app.exception_handler(EduCorpError)
+    async def educorp_error_handler(
+        request: Request, exc: EduCorpError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": {
+                    "code": exc.code,
+                    "message": exc.message,
+                    "details": exc.details,
+                }
+            },
+        )

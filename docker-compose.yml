@@ -1,0 +1,495 @@
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  networks:
+    - educorp
+  env_file:
+    - .env
+
+x-python-service: &python-service
+  <<: *service-defaults
+  build:
+    context: .
+    dockerfile: infra/docker/Dockerfile.service
+  volumes:
+    - ./shared:/app/shared:ro
+
+services:
+  # ─── Infrastructure ────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    <<: *service-defaults
+    ports:
+      - "${POSTGRES_HOST_PORT:-15432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-educorp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-educorp_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-educorp}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-educorp}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    image: mongo:7
+    <<: *service-defaults
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-educorp}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-educorp_dev}
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    <<: *service-defaults
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD:-educorp_dev} --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-educorp_dev}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:v1.8.0
+    <<: *service-defaults
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q ':18BD ' /proc/net/tcp /proc/net/tcp6"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    <<: *service-defaults
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-educorp}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-educorp_dev}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Messaging ─────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    <<: *service-defaults
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    <<: *service-defaults
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    depends_on:
+      zookeeper:
+        condition: service_started
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+      - ./infra/kafka/topics.sh:/opt/kafka-topics.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.0
+    <<: *service-defaults
+    ports:
+      - "8081:8081"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:29092
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    <<: *service-defaults
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-educorp}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-educorp_dev}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Workflow Engine ───────────────────────────────────
+  temporal:
+    image: temporalio/auto-setup:1.24.2
+    <<: *service-defaults
+    ports:
+      - "7233:7233"
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-educorp}
+      - POSTGRES_PWD=${POSTGRES_PASSWORD:-educorp_dev}
+      - POSTGRES_SEEDS=postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q ':1C41 ' /proc/net/tcp /proc/net/tcp6"]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 10
+
+  temporal-ui:
+    image: temporalio/ui:2.26.2
+    <<: *service-defaults
+    ports:
+      - "8088:8080"
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  # ─── Observability ─────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    <<: *service-defaults
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    <<: *service-defaults
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./infra/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.55
+    <<: *service-defaults
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
+  # ─── API Gateway ───────────────────────────────────────
+  traefik:
+    image: traefik:v3.0
+    <<: *service-defaults
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - ./infra/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./infra/traefik/dynamic:/etc/traefik/dynamic:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ─── Application Services ──────────────────────────────
+  auth-service:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.service
+      args:
+        SERVICE_DIR: services/auth
+    environment:
+      SERVICE_NAME: auth-service
+    volumes:
+      - ./shared:/app/shared:ro
+      - ./services/auth:/app/service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  course-service:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.service
+      args:
+        SERVICE_DIR: services/course
+    environment:
+      SERVICE_NAME: course-service
+    volumes:
+      - ./shared:/app/shared:ro
+      - ./services/course:/app/service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  enrollment-service:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.service
+      args:
+        SERVICE_DIR: services/enrollment
+    environment:
+      SERVICE_NAME: enrollment-service
+    volumes:
+      - ./shared:/app/shared:ro
+      - ./services/enrollment:/app/service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  progress-service:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.service
+      args:
+        SERVICE_DIR: services/progress
+    environment:
+      SERVICE_NAME: progress-service
+    volumes:
+      - ./shared:/app/shared:ro
+      - ./services/progress:/app/service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  publishing-service:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.service
+      args:
+        SERVICE_DIR: services/publishing
+    environment:
+      SERVICE_NAME: publishing-service
+    volumes:
+      - ./shared:/app/shared:ro
+      - ./services/publishing:/app/service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  publishing-worker:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.service
+      args:
+        SERVICE_DIR: services/publishing
+    environment:
+      SERVICE_NAME: publishing-worker
+    command: ["python", "-m", "app.worker"]
+    volumes:
+      - ./shared:/app/shared:ro
+      - ./services/publishing:/app/service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  ai-service:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.service
+      args:
+        SERVICE_DIR: services/ai
+    environment:
+      SERVICE_NAME: ai-service
+    volumes:
+      - ./shared:/app/shared:ro
+      - ./services/ai:/app/service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
+  search-service:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.service
+      args:
+        SERVICE_DIR: services/search
+    environment:
+      SERVICE_NAME: search-service
+    volumes:
+      - ./shared:/app/shared:ro
+      - ./services/search:/app/service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
+  notification-service:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.service
+      args:
+        SERVICE_DIR: services/notification
+    environment:
+      SERVICE_NAME: notification-service
+    volumes:
+      - ./shared:/app/shared:ro
+      - ./services/notification:/app/service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  notification-worker:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.service
+      args:
+        SERVICE_DIR: services/notification
+    environment:
+      SERVICE_NAME: notification-worker
+    command: ["celery", "-A", "app.celery_app", "worker", "--loglevel=info"]
+    volumes:
+      - ./shared:/app/shared:ro
+      - ./services/notification:/app/service
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  analytics-service:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.service
+      args:
+        SERVICE_DIR: services/analytics
+    environment:
+      SERVICE_NAME: analytics-service
+    volumes:
+      - ./shared:/app/shared:ro
+      - ./services/analytics:/app/service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  mongo_data:
+  redis_data:
+  qdrant_data:
+  minio_data:
+  zookeeper_data:
+  kafka_data:
+  rabbitmq_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  educorp:
+    driver: bridge
