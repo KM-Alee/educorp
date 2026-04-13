@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
+from miniopy_async import Minio
+from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.api.v1 import router as v1_router
 from app.config import settings
@@ -22,13 +24,33 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     setup_logging(settings.log_level)
     logger.info("Starting service", service=settings.service_name)
 
+    # PostgreSQL
     engine = create_async_engine(settings.database_url)
-    from app.dependencies import set_engine
+    from app.dependencies import set_engine, set_minio, set_mongo
 
     set_engine(engine)
 
+    # MongoDB
+    mongo_client: AsyncIOMotorClient = AsyncIOMotorClient(settings.mongo_url)  # type: ignore[type-arg]
+    mongo_db = mongo_client[settings.mongo_db]
+    set_mongo(mongo_client, mongo_db)
+
+    # MinIO
+    minio_client = Minio(
+        settings.minio_endpoint,
+        access_key=settings.minio_access_key,
+        secret_key=settings.minio_secret_key,
+        secure=settings.minio_use_ssl,
+    )
+    set_minio(minio_client)
+
+    # Ensure bucket exists
+    if not await minio_client.bucket_exists(settings.minio_bucket):
+        await minio_client.make_bucket(settings.minio_bucket)
+
     yield
 
+    mongo_client.close()
     await engine.dispose()
     logger.info("Service stopped", service=settings.service_name)
 

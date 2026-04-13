@@ -5,11 +5,24 @@ description = "EduCorp — Intelligent Course Delivery Platform"
 requires-python = ">=3.12"
 readme = "README.md"
 
+[dependency-groups]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0",
+    "aiosqlite>=0.20.0",
+    "respx>=0.21.0",
+    "factory-boy>=3.3.0",
+]
+
 [tool.uv.workspace]
 members = [
     "shared",
     "services/*",
 ]
+
+[tool.uv.sources]
+educorp-common = { workspace = true }
 
 [tool.ruff]
 target-version = "py312"

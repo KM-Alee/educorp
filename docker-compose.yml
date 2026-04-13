@@ -239,6 +239,22 @@ services:
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
 
+  # ─── Frontend ───────────────────────────────────────────
+  frontend:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    <<: *service-defaults
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./apps/web:/app:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.frontend.entrypoints=web"
+      - "traefik.http.services.frontend.loadbalancer.server.port=5173"
+
   # ─── API Gateway ───────────────────────────────────────
   traefik:
     image: traefik:v3.0
