@@ -1,6 +1,6 @@
 # EduCorp
 
-Intelligent course delivery platform — 9 FastAPI microservices communicating via REST, Kafka events, and Temporal workflows.
+Intelligent course delivery platform with a first-party web app and 9 FastAPI microservices communicating via REST, Kafka events, and Temporal workflows.
 
 ## Quick Start
 
@@ -11,6 +11,11 @@ Intelligent course delivery platform — 9 FastAPI microservices communicating v
 # Or manually:
 cp .env.example .env
 docker compose up -d
+
+# Frontend (Phase 1 web app)
+cd apps/web
+npm install
+npm run dev
 ```
 
 ```powershell
@@ -33,6 +38,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\dev-setup.ps1
 | analytics | 8009 | `/api/v1/analytics` | Event aggregation & reporting |
 
 All services are routed through **Traefik** on port 80.
+
+## Frontend
+
+The first-party learner/admin web app lives in `apps/web` and is developed in parallel with the backend phases.
+
+- Phase 1 scope: registration, login, email verification, password reset, profile, admin user management, instructor application review
+- Design direction: warm editorial surfaces, restrained depth, and utilitarian auth flows adapted from the `cursor-inspo.md` brief without copying proprietary assets or adding decorative gradients/glow
+- API integration: the web app talks directly to the Traefik-routed APIs under `/api/v1/*`
 
 ## Infrastructure UIs
 
@@ -61,6 +74,12 @@ make kafka-list      # List Kafka topics
 make seed            # Seed development data
 make clean           # Remove containers + volumes
 make reset           # Full reset: clean + build + up + migrate + seed
+
+# Frontend workspace
+npm --prefix apps/web install
+npm --prefix apps/web run dev
+npm --prefix apps/web run test
+npm --prefix apps/web run build
 ```
 
 ## Project Structure
@@ -68,6 +87,8 @@ make reset           # Full reset: clean + build + up + migrate + seed
 ```
 educorp/
 ├── AGENTS.md                    # Project guidelines for AI assistants
+├── apps/
+│   └── web/                     # First-party React/Vite frontend
 ├── docker-compose.yml           # Full stack definition
 ├── Makefile                     # Developer commands
 ├── pyproject.toml               # Workspace config (ruff, mypy)
@@ -106,3 +127,7 @@ educorp/
 ## Documentation
 
 See the [docs/](docs/) directory for detailed design documentation.
+
+- `docs/ARCHITECTURE.md` — service and frontend architecture
+- `docs/FRONTEND.md` — web app structure, UI system, and route plan
+- `docs/PHASES.md` — backend and frontend delivery phases

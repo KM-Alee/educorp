@@ -15,14 +15,14 @@ The entire development environment runs via Docker Compose. All services, databa
 | MinIO | `minio/minio:latest` | 9000, 9001 | Object storage (S3-compatible) |
 | Kafka | `confluentinc/cp-kafka:7.6.0` | 9092, 29092 | Event streaming |
 | ZooKeeper | `confluentinc/cp-zookeeper:7.6.0` | 2181 | Kafka coordination |
-| Schema Registry | `confluentinc/cp-schema-registry:7.6.0` | 8081 | Event schema management |
+| Schema Registry | `confluentinc/cp-schema-registry:7.6.0` | 8082 | Event schema management |
 | RabbitMQ | `rabbitmq:3.13-management-alpine` | 5672, 15672 | Celery broker |
 | Temporal | `temporalio/auto-setup:1.24` | 7233 | Workflow engine |
 | Temporal UI | `temporalio/ui:2.26` | 8088 | Workflow dashboard |
 | Prometheus | `prom/prometheus:v2.51.0` | 9090 | Metrics collection |
 | Grafana | `grafana/grafana:10.4.0` | 3000 | Dashboards |
 | Jaeger | `jaegertracing/all-in-one:1.55` | 16686, 4317, 4318 | Distributed tracing |
-| Traefik | `traefik:v3.0` | 80, 443, 8080 | API gateway/reverse proxy |
+| Traefik | `traefik:v3.0` | 80, 8081 | API gateway/reverse proxy |
 
 ### 1.2 Application Services
 
@@ -185,7 +185,7 @@ services:
     image: confluentinc/cp-schema-registry:7.6.0
     <<: *service-defaults
     ports:
-      - "8081:8081"
+      - "8082:8081"
     depends_on:
       kafka:
         condition: service_healthy
@@ -287,8 +287,7 @@ services:
     <<: *service-defaults
     ports:
       - "80:80"
-      - "443:443"
-      - "8080:8080"
+      - "8081:8080"
     volumes:
       - ./infra/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./infra/traefik/dynamic:/etc/traefik/dynamic:ro
@@ -470,70 +469,76 @@ metrics:
 http:
   routers:
     auth:
-      rule: "PathPrefix(`/api/v1/auth`) || PathPrefix(`/api/v1/admin/users`) || PathPrefix(`/api/v1/admin/instructor-applications`)"
+      rule: "PathPrefix(`/api/v1/auth`) || PathPrefix(`/api/v1/admin`)"
       service: auth-service
       entryPoints:
         - web
+      middlewares:
+        - cors
 
     courses:
       rule: "PathPrefix(`/api/v1/courses`)"
       service: course-service
       entryPoints:
         - web
+      middlewares:
+        - cors
 
     enrollments:
       rule: "PathPrefix(`/api/v1/enrollments`)"
       service: enrollment-service
       entryPoints:
         - web
+      middlewares:
+        - cors
 
     progress:
       rule: "PathPrefix(`/api/v1/progress`)"
       service: progress-service
       entryPoints:
         - web
+      middlewares:
+        - cors
 
     publishing:
-      rule: "PathPrefix(`/api/v1/publishing`) || PathPrefix(`/api/v1/courses`) && Method(`POST`) && PathRegexp(`/api/v1/courses/[^/]+/publish`)"
+      rule: "PathPrefix(`/api/v1/publishing`)"
       service: publishing-service
       entryPoints:
         - web
+      middlewares:
+        - cors
 
     ai:
       rule: "PathPrefix(`/api/v1/ai`)"
       service: ai-service
       entryPoints:
         - web
+      middlewares:
+        - cors
 
     search:
       rule: "PathPrefix(`/api/v1/search`)"
       service: search-service
       entryPoints:
         - web
+      middlewares:
+        - cors
 
     notifications:
       rule: "PathPrefix(`/api/v1/notifications`)"
       service: notification-service
       entryPoints:
         - web
+      middlewares:
+        - cors
 
     analytics:
       rule: "PathPrefix(`/api/v1/analytics`)"
       service: analytics-service
       entryPoints:
         - web
-
-    admin:
-      rule: "PathPrefix(`/api/v1/admin`)"
-      service: auth-service
-      entryPoints:
-        - web
-
-    health:
-      rule: "PathPrefix(`/health`)"
-      service: auth-service
-      entryPoints:
-        - web
+      middlewares:
+        - cors
 
   services:
     auth-service:
@@ -710,6 +715,7 @@ REDIS_URL=redis://:educorp_dev@redis:6379/0
 # ─── Kafka ────────────────────────────────────────
 KAFKA_BOOTSTRAP_SERVERS=kafka:29092
 SCHEMA_REGISTRY_URL=http://schema-registry:8081
+SCHEMA_REGISTRY_HOST_PORT=8082
 
 # ─── RabbitMQ ─────────────────────────────────────
 RABBITMQ_HOST=rabbitmq

@@ -4,6 +4,8 @@
 
 The project is divided into 8 phases (Phase 0–7). Each phase produces a **testable increment** — something you can manually verify end-to-end before moving on. Phases are sequential; each builds on the previous.
 
+Frontend work is not deferred until the backend is complete. Starting in Phase 0, each phase includes a backend track and a first-party web track so product flows can be exercised through the UI as the APIs land.
+
 ```
 Phase 0: Scaffolding & Infrastructure Bootstrap
 Phase 1: Authentication & User Management
@@ -36,6 +38,7 @@ Phase 7: Observability, Hardening & Production Readiness
 | **Monitoring** | Prometheus scraping health endpoints, Grafana accessible |
 | **Dev tooling** | Makefile, `.env.example`, dev-setup script, `.gitattributes`, `pyproject.toml` |
 | **Traefik** | Routing to all services, CORS configured |
+| **Frontend foundation** | `apps/web` scaffold, router, API client, auth/session primitives, shared design tokens |
 
 ### Tasks
 
@@ -100,6 +103,13 @@ Phase 7: Observability, Hardening & Production Readiness
    - `scripts/dev-setup.sh` — One-command setup: copy `.env`, build, up, wait for health, create topics
    - `README.md` — Getting started guide
 
+10. **Create frontend foundation**
+  - `apps/web/` with Vite + TypeScript application scaffold
+  - Global design tokens and CSS variables for the warm editorial UI system
+  - Shared API client pointed at Traefik (`/api/v1/*`)
+  - Router, query client, and session storage primitives
+  - Test harness for component and route-level tests
+
 ### Testable Outcome
 
 ```bash
@@ -121,7 +131,7 @@ curl http://localhost/api/v1/courses/health/ready   # → {"status": "ready"}
 # RabbitMQ:   http://localhost:15672 (educorp/educorp_dev)
 # MinIO:      http://localhost:9001 (educorp/educorp_dev)
 # Jaeger:     http://localhost:16686
-# Traefik:    http://localhost:8080
+# Traefik:    http://localhost:8081
 
 # 4. Database schemas exist
 docker compose exec postgres psql -U educorp -c "\dn"
@@ -146,6 +156,7 @@ make migrate
 - [ ] Grafana loads with Prometheus data source
 - [ ] Alembic migrations run without errors
 - [ ] Works on both Linux and Windows (Docker Desktop)
+- [ ] `apps/web` starts locally and can reach the gateway APIs
 
 ---
 
@@ -171,6 +182,10 @@ make migrate
 | **Event emission** | UserCreated, RoleChanged events to outbox |
 | **Seed script** | Create admin user, sample students/instructors |
 | **Tests** | Unit tests for hashing/JWT, integration tests for all endpoints |
+| **Auth web flows** | Register, login, verify email, forgot/reset password, profile UI |
+| **Session shell** | Protected app shell with token refresh and role-aware navigation |
+| **Admin console (initial)** | User list, role update, activation toggle, instructor application review |
+| **Design system slice** | Warm editorial auth/admin interface adapted from the Cursor brief for product use |
 
 ### Tasks
 
@@ -191,6 +206,11 @@ make migrate
 15. **Implement outbox writes** — UserCreated, RoleChanged events
 16. **Write seed script** — Admin user, test students/instructors
 17. **Write tests** — Unit (password, JWT), integration (all endpoints)
+18. **Build Phase 1 frontend routes** — `/login`, `/register`, `/verify-email`, `/forgot-password`, `/reset-password`, `/app/profile`
+19. **Build admin frontend routes** — `/app/admin/users`, `/app/admin/instructor-applications`
+20. **Implement frontend session handling** — access token storage, refresh rotation, auth guards, role guards
+21. **Implement frontend form UX** — validation, API error states, optimistic updates only where safe
+22. **Write frontend tests** — auth form, route guard, API client, and admin screen coverage
 
 ### Testable Outcome
 
@@ -231,6 +251,13 @@ curl http://localhost/api/v1/admin/users \
 # 7. Audit log populated
 docker compose exec postgres psql -U educorp -c "SELECT action, resource_type FROM auth.audit_log LIMIT 5;"
 # → Shows auth actions
+
+# 8. Web app auth flow works
+# Open http://localhost:5173
+# - Register user
+# - Verify email with token from mock flow
+# - Login and land on profile screen
+# - Admin can review users and instructor applications
 ```
 
 ### Exit Criteria
@@ -243,6 +270,14 @@ docker compose exec postgres psql -U educorp -c "SELECT action, resource_type FR
 - [ ] Audit log records all auth actions
 - [ ] Outbox has UserCreated events
 - [ ] All tests pass with >80% coverage on auth service
+- [ ] Phase 1 web screens work against the live auth APIs
+- [ ] Admin-only screens are hidden from non-admin users and rejected server-side if forced
+
+### Frontend Notes
+
+- The UI direction is intentionally restrained: warm cream surfaces, dark brown text, expressive but readable typography, and minimal motion.
+- Use the Cursor brief as a structural reference only. Adapt it for a real product shell, not a landing page.
+- Prefer durable interaction patterns over decorative effects. No hero gradients, glow halos, or generic AI visuals.
 
 ---
 

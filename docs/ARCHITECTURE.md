@@ -2,12 +2,12 @@
 
 ## 1. Architecture Overview
 
-EduCorp is a **service-oriented platform** composed of domain-bounded services communicating through synchronous APIs (HTTP/REST) and asynchronous events (Kafka). Complex multi-step workflows (publishing, enrollment sagas) are orchestrated by Temporal. The system follows a **CQRS-lite** pattern: PostgreSQL is the system of record for transactional writes, while derived read models (Qdrant, search indexes, analytics projections) power query-heavy paths.
+EduCorp is a **service-oriented platform** composed of a first-party web application and domain-bounded backend services communicating through synchronous APIs (HTTP/REST) and asynchronous events (Kafka). Complex multi-step workflows (publishing, enrollment sagas) are orchestrated by Temporal. The system follows a **CQRS-lite** pattern: PostgreSQL is the system of record for transactional writes, while derived read models (Qdrant, search indexes, analytics projections) power query-heavy paths.
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
 │                          Client Layer                                 │
-│  (Web App / Mobile App / API Consumers)                              │
+│  (EduCorp Web App / Mobile App later / API Consumers)                │
 └──────────────────────────┬────────────────────────────────────────────┘
                            │ HTTPS
                            ▼
@@ -69,6 +69,27 @@ EduCorp is a **service-oriented platform** composed of domain-bounded services c
 | analytics-service ← Kafka | Consumer | Aggregate all domain events |
 | Any service → auth-service | HTTP (internal) | Token validation, user lookup (or JWT self-validation) |
 | Any service → Redis | TCP | Caching, rate limits, idempotency keys |
+
+### 2.3 First-Party Web App
+
+EduCorp now includes a first-party web frontend in `apps/web`. The web app is delivered in lockstep with backend phases instead of waiting for backend completion.
+
+**Responsibilities**
+- Authentication and session lifecycle: register, login, refresh, logout, verify email, password reset
+- Role-aware navigation for student, instructor, and admin experiences
+- CRUD orchestration against the public REST APIs exposed through Traefik
+- Displaying correlation-aware error states from the standard response envelope
+
+**Frontend architecture principles**
+- **Direct API consumption through Traefik**: the browser calls `/api/v1/*` endpoints directly; there is no separate BFF in Phase 1.
+- **Route-level authorization**: protected routes require a valid access token and role checks in the client before rendering privileged screens.
+- **Session resilience**: access tokens are short-lived; refresh is handled centrally by the frontend API client.
+- **Progressive complexity**: Phase 1 focuses on auth and admin workflows, while course authoring, enrollment, and learner progress UI arrive in later phases.
+
+**Design adaptation**
+- The frontend uses a warm editorial visual language derived from `cursor-inspo.md`, but adapted for a productivity application rather than a marketing site.
+- Keep surfaces cream-toned, borders warm and restrained, typography expressive, and motion subtle.
+- Avoid gratuitous gradients, glow, glassmorphism, or AI-themed chrome. The product should feel operational, not promotional.
 
 ## 3. Data Architecture
 
@@ -398,9 +419,21 @@ All services handle `SIGTERM`:
 ```
 educorp/
 ├── prd.md                          # Product Requirements Document
+├── apps/
+│   └── web/                        # First-party frontend (React + Vite)
+│       ├── src/
+│       │   ├── app/                # Router, providers, app shell
+│       │   ├── features/           # Route-scoped UI modules
+│       │   ├── components/         # Shared UI building blocks
+│       │   ├── lib/                # API client, auth/session helpers
+│       │   └── styles/             # Design tokens and global CSS
+│       ├── public/
+│       ├── package.json
+│       └── vite.config.ts
 ├── docs/                           # Project documentation
 │   ├── ARCHITECTURE.md
 │   ├── API_CONTRACTS.md
+│   ├── FRONTEND.md
 │   ├── DATA_MODELS.md
 │   ├── INFRASTRUCTURE.md
 │   ├── SECURITY.md
