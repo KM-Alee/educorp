@@ -2,16 +2,23 @@ from __future__ import annotations
 
 from typing import Any, Generic, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 T = TypeVar("T")
+
+
+class ResponseMeta(BaseModel):
+    """Standard response metadata."""
+
+    correlation_id: str | None = None
+    timestamp: str | None = None
 
 
 class SuccessResponse(BaseModel, Generic[T]):
     """Standard success response envelope."""
 
     data: T
-    meta: dict[str, Any] = {}
+    meta: ResponseMeta = Field(default_factory=ResponseMeta)
 
 
 class ErrorDetail(BaseModel):
@@ -19,7 +26,9 @@ class ErrorDetail(BaseModel):
 
     code: str
     message: str
-    details: list[dict[str, Any]] = []
+    details: list[dict[str, Any]] = Field(default_factory=list)
+    correlation_id: str | None = None
+    timestamp: str | None = None
 
 
 class ErrorResponse(BaseModel):
@@ -28,17 +37,20 @@ class ErrorResponse(BaseModel):
     error: ErrorDetail
 
 
-class PaginatedMeta(BaseModel):
+class Pagination(BaseModel):
     """Pagination metadata."""
 
-    total: int
     page: int
-    per_page: int
+    page_size: int
+    total_items: int
     total_pages: int
+    has_next: bool
+    has_prev: bool
 
 
 class PaginatedResponse(BaseModel, Generic[T]):
     """Paginated response envelope."""
 
     data: list[T]
-    meta: PaginatedMeta
+    meta: ResponseMeta = Field(default_factory=ResponseMeta)
+    pagination: Pagination

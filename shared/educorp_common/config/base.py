@@ -17,6 +17,14 @@ class BaseAppSettings(BaseSettings):
     log_level: str = "INFO"
     secret_key: str = "change-me-in-production"
 
+    # JWT
+    jwt_secret_key: str = "change-me-to-a-long-random-string"
+    jwt_algorithm: str = "HS256"
+    jwt_issuer: str = "educorp"
+    jwt_audience: str = "educorp-api"
+    jwt_access_token_expire_minutes: int = 15
+    jwt_refresh_token_expire_days: int = 7
+
     # PostgreSQL
     database_url: str = "postgresql+asyncpg://educorp:educorp_dev@postgres:5432/educorp"
 

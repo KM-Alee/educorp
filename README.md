@@ -5,12 +5,17 @@ Intelligent course delivery platform — 9 FastAPI microservices communicating v
 ## Quick Start
 
 ```bash
-# One-command setup
+# One-command setup (Linux/macOS)
 ./scripts/dev-setup.sh
 
 # Or manually:
 cp .env.example .env
 docker compose up -d
+```
+
+```powershell
+# One-command setup (Windows PowerShell)
+powershell -ExecutionPolicy Bypass -File .\scripts\dev-setup.ps1
 ```
 
 ## Services
@@ -33,7 +38,7 @@ All services are routed through **Traefik** on port 80.
 
 | Tool | URL | Credentials |
 |------|-----|-------------|
-| Traefik | http://localhost:8080 | — |
+| Traefik | http://localhost:8081 | — |
 | Grafana | http://localhost:3000 | admin / admin |
 | Temporal | http://localhost:8088 | — |
 | RabbitMQ | http://localhost:15672 | educorp / educorp_dev |

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+
+from educorp_common.middleware.correlation import get_correlation_id
 
 
 class EduCorpError(Exception):
@@ -27,7 +30,9 @@ class NotFoundError(EduCorpError):
     """Resource not found."""
 
     def __init__(
-        self, message: str = "Resource not found", code: str = "NOT_FOUND"
+        self,
+        message: str = "Resource not found",
+        code: str = "RESOURCE_NOT_FOUND",
     ) -> None:
         super().__init__(code=code, message=message, status_code=404)
 
@@ -80,6 +85,8 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def educorp_error_handler(
         request: Request, exc: EduCorpError
     ) -> JSONResponse:
+        correlation_id = get_correlation_id()
+        timestamp = datetime.now(timezone.utc).isoformat()
         return JSONResponse(
             status_code=exc.status_code,
             content={
@@ -87,6 +94,8 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "code": exc.code,
                     "message": exc.message,
                     "details": exc.details,
+                    "correlation_id": correlation_id,
+                    "timestamp": timestamp,
                 }
             },
         )

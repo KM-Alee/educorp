@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import ExpiredSignatureError, JWTError
+
+from educorp_common.auth.tokens import decode_access_token
+from educorp_common.config.base import BaseAppSettings
+from educorp_common.errors import ForbiddenError, UnauthorizedError
 
 
 class CurrentUser(TypedDict):
@@ -12,20 +18,37 @@ class CurrentUser(TypedDict):
     email: str
     roles: list[str]
     is_active: bool
+    is_verified: bool
 
 
-async def get_current_user(request: Request) -> CurrentUser:
-    """Extract and validate the current user from the JWT token.
+settings = BaseAppSettings()
+security = HTTPBearer()
 
-    Stub implementation for Phase 0 — returns a mock user.
-    Will be replaced with real JWT validation in Phase 1.
-    """
-    # Phase 0 stub: return a mock user
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Security(security),
+) -> CurrentUser:
+    """Extract and validate the current user from the JWT token."""
+    token = credentials.credentials
+    try:
+        payload = decode_access_token(
+            token,
+            secret_key=settings.jwt_secret_key,
+            algorithm=settings.jwt_algorithm,
+            issuer=settings.jwt_issuer,
+            audience=settings.jwt_audience,
+        )
+    except ExpiredSignatureError as exc:
+        raise UnauthorizedError("Token expired") from exc
+    except JWTError as exc:
+        raise UnauthorizedError("Invalid token") from exc
+
     return CurrentUser(
-        id="00000000-0000-0000-0000-000000000001",
-        email="dev@educorp.dev",
-        roles=["admin", "instructor", "student"],
-        is_active=True,
+        id=str(payload.get("sub", "")),
+        email=str(payload.get("email", "")),
+        roles=list(payload.get("roles", [])),
+        is_active=bool(payload.get("is_active", True)),
+        is_verified=bool(payload.get("is_verified", True)),
     )
 
 
@@ -37,10 +60,7 @@ def require_roles(*roles: str) -> Any:
     ) -> CurrentUser:
         user_roles = current_user["roles"]
         if not any(role in user_roles for role in roles):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions",
-            )
+            raise ForbiddenError("Insufficient permissions")
         return current_user
 
-    return Depends(_check_roles)
+    return _check_roles
