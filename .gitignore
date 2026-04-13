@@ -48,3 +48,4 @@ Thumbs.db
 
 # Prometheus multiproc
 /tmp/prometheus_multiproc/
+uv.lock
