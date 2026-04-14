@@ -4,11 +4,15 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
+from motor.motor_asyncio import AsyncIOMotorDatabase
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import CurrentUser, get_current_user, get_session, require_roles
+from app.dependencies import CurrentUser, get_current_user, get_mongo_db, get_session, require_roles
 from app.schemas.course import CourseCreate, CourseListItem, CourseOut, CourseUpdate
+from app.schemas.draft import DraftContentDocument, DraftContentUpdate, DraftValidationResult
 from app.services.course_service import CourseService
+from app.services.draft_content_service import DraftContentService
+from app.services.draft_validation_service import DraftValidationService
 from educorp_common.middleware.correlation import get_correlation_id
 from educorp_common.schemas.responses import Pagination, PaginatedResponse, ResponseMeta, SuccessResponse
 
@@ -132,3 +136,64 @@ async def delete_course(
         caller_roles=current_user["roles"],
     )
     await session.commit()
+
+
+@router.post(
+    "/{course_id}/validate",
+    response_model=SuccessResponse[DraftValidationResult],
+)
+async def validate_course_draft(
+    course_id: UUID,
+    current_user: CurrentUser = Depends(require_roles("instructor", "admin")),
+    session: AsyncSession = Depends(get_session),
+) -> SuccessResponse[DraftValidationResult]:
+    svc = DraftValidationService(session)
+    issues = await svc.validate(
+        course_id=course_id,
+        caller_id=UUID(current_user["id"]),
+        caller_roles=current_user["roles"],
+    )
+    return SuccessResponse(
+        data=DraftValidationResult(is_valid=not issues, issues=issues),
+        meta=_meta(),
+    )
+
+
+@router.get(
+    "/{course_id}/draft-content",
+    response_model=SuccessResponse[DraftContentDocument],
+)
+async def get_course_draft_content(
+    course_id: UUID,
+    current_user: CurrentUser = Depends(require_roles("instructor", "admin")),
+    session: AsyncSession = Depends(get_session),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),  # type: ignore[type-arg]
+) -> SuccessResponse[DraftContentDocument]:
+    svc = DraftContentService(session, mongo_db)
+    result = await svc.get(
+        course_id=course_id,
+        caller_id=UUID(current_user["id"]),
+        caller_roles=current_user["roles"],
+    )
+    return SuccessResponse(data=result, meta=_meta())
+
+
+@router.patch(
+    "/{course_id}/draft-content",
+    response_model=SuccessResponse[DraftContentDocument],
+)
+async def update_course_draft_content(
+    course_id: UUID,
+    payload: DraftContentUpdate,
+    current_user: CurrentUser = Depends(require_roles("instructor", "admin")),
+    session: AsyncSession = Depends(get_session),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),  # type: ignore[type-arg]
+) -> SuccessResponse[DraftContentDocument]:
+    svc = DraftContentService(session, mongo_db)
+    result = await svc.update(
+        course_id=course_id,
+        caller_id=UUID(current_user["id"]),
+        caller_roles=current_user["roles"],
+        content=payload.content,
+    )
+    return SuccessResponse(data=result, meta=_meta())

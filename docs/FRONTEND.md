@@ -6,10 +6,12 @@ EduCorp ships a first-party web application from `apps/web`. The frontend is bui
 
 Phase 1 covers authentication, account recovery, profile management, and a thin admin console for user and instructor-application operations.
 
+Phase 2 adds the first real product workflow for instructors and admins: course draft creation, metadata editing, module management, MinIO-backed asset operations, draft validation, and Mongo-backed rich draft content.
+
 ## Product Boundaries
 
 - The web app consumes the public REST API through Traefik under `/api/v1/*`.
-- There is no separate backend-for-frontend in Phase 1.
+- There is no separate backend-for-frontend in Phase 1 or Phase 2.
 - Access tokens stay short-lived and refresh tokens are rotated through the existing auth endpoints.
 - Server-side authorization remains the source of truth. Client guards improve UX but do not replace backend checks.
 
@@ -32,10 +34,11 @@ apps/web/
 │   ├── components/     # Shared shell and presentational pieces
 │   ├── features/
 │   │   ├── auth/       # Register, login, verify, reset, session logic
+│   │   ├── courses/    # Draft course workspace, modules, assets, validation, draft content
 │   │   ├── profile/    # Current user profile screens
 │   │   └── admin/      # Users and instructor applications
 │   ├── lib/            # HTTP client, env config, query helpers
-│   └── styles/         # Tokens and global CSS
+│   └── index.css       # Tokens and global CSS
 ├── package.json
 └── vite.config.ts
 ```
@@ -52,6 +55,8 @@ apps/web/
 
 ### Protected routes
 
+- `/app/courses`
+- `/app/courses/:courseId`
 - `/app/profile`
 - `/app/admin/users`
 - `/app/admin/instructor-applications`
@@ -61,6 +66,7 @@ apps/web/
 - Persist the refresh token locally for development convenience in Phase 1.
 - Keep the access token in memory and refresh it centrally on `401` responses when refresh is available.
 - Store the decoded user summary and roles in app state after login and refresh.
+- Default instructors and admins into the authoring workspace; students land on profile.
 - On refresh failure, clear session state and return to `/login`.
 
 ## Design System Adaptation
@@ -118,15 +124,17 @@ The frontend takes the warm editorial tone from `cursor-inspo.md` and adapts it 
 - Default shadow: minimal or none
 - Elevated shadow: diffuse and warm, used sparingly
 
-## Phase 1 Screen Rules
+## Screen Rules
 
 - Authentication pages should feel calm and trustworthy, not like a launch page.
 - Form layouts should favor a single clear column with one secondary support panel at most.
 - Admin screens should use dense but readable tables and filter bars with warm borders and low visual noise.
+- Authoring screens should privilege scanability and flow: metadata at the top, module work in the middle, and validation or draft-content side panels on the right.
+- The course workspace should expose real API feedback, not fake completion states.
 - Error states should be explicit and human-readable using the API response envelope's `error.message`.
 
 ## Testing Expectations
 
 - Cover core auth forms, route guards, and API session behavior with Vitest.
 - Prefer integration-style component tests over snapshot-heavy tests.
-- Keep a small number of tests focused on user-critical flows: register, login, refresh/logout failure, profile update, and admin access restrictions.
+- Keep a small number of tests focused on user-critical flows: register, login, refresh/logout failure, profile update, admin access restrictions, and authoring route/API behavior.

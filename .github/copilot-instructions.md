@@ -2,15 +2,15 @@
 
 ## Project Overview
 
-EduCorp is an intelligent course delivery platform built as a service-oriented Python backend.
-9 FastAPI services communicate via REST, Kafka events, and Temporal workflows.
-There is **no frontend** — all services expose a REST API routed through Traefik.
+EduCorp is an intelligent course delivery platform built as a service-oriented system with a first-party web app.
+9 FastAPI services communicate via REST, Kafka events, and Temporal workflows, and `apps/web` exercises those APIs through the same Traefik gateway.
 
 ## Technology Stack
 
 | Layer | Technology |
 |-------|-----------|
 | **Framework** | FastAPI (Python 3.12+, async) |
+| **Frontend** | React 19 + TypeScript + Vite |
 | **Auth** | JWT (access + refresh), Argon2id, RBAC |
 | **Databases** | PostgreSQL 16 (system of record), MongoDB 7 (content), Redis 7 (cache), Qdrant (vectors) |
 | **Messaging** | Kafka (domain events), RabbitMQ (Celery broker) |
@@ -37,6 +37,12 @@ There is **no frontend** — all services expose a REST API routed through Traef
 ## Directory Structure
 
 ```
+apps/web/
+├── src/
+│   ├── app/              # Router, providers, bootstrapping
+│   ├── features/         # Auth, profile, admin, courses
+│   ├── lib/              # API client, session, shared types
+│   └── index.css         # Global tokens and styles
 services/<name>/
 ├── app/
 │   ├── main.py           # FastAPI app factory + lifespan

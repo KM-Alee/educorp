@@ -7,6 +7,8 @@ from app.repositories.module_repository import ModuleRepository
 from app.schemas.common import DraftValidationIssue
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from educorp_common.errors import ForbiddenError, NotFoundError
+
 
 class DraftValidationService:
     """Pre-publish validation rules for course drafts."""
@@ -15,13 +17,20 @@ class DraftValidationService:
         self._courses = CourseRepository(session)
         self._modules = ModuleRepository(session)
 
-    async def validate(self, course_id: UUID) -> list[DraftValidationIssue]:
+    async def validate(
+        self,
+        *,
+        course_id: UUID,
+        caller_id: UUID,
+        caller_roles: list[str],
+    ) -> list[DraftValidationIssue]:
         issues: list[DraftValidationIssue] = []
 
         course = await self._courses.get_by_id(course_id)
         if course is None:
-            issues.append(DraftValidationIssue(field="course", message="Course not found"))
-            return issues
+            raise NotFoundError("Course not found")
+        if "admin" not in caller_roles and course.instructor_id != caller_id:
+            raise ForbiddenError("You do not own this course")
 
         if not course.title or not course.title.strip():
             issues.append(DraftValidationIssue(field="title", message="Title is required"))

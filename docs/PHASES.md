@@ -296,7 +296,8 @@ docker compose exec postgres psql -U educorp -c "SELECT action, resource_type FR
 | **Draft validation** | Pre-publish validation (metadata, modules, assets) |
 | **MongoDB integration** | Rich content storage for drafts |
 | **Authorization** | Instructor owns courses; admin can access all |
-| **Catalog stub** | List READY courses (no READY courses yet, but endpoint works) |
+| **Catalog stub** | List published courses for non-privileged callers; instructors/admins can inspect drafts |
+| **Authoring web flow** | Instructor/admin workspace for draft course creation and editing |
 | **Tests** | CRUD tests, upload tests, validation tests |
 
 ### Tasks
@@ -313,6 +314,11 @@ docker compose exec postgres psql -U educorp -c "SELECT action, resource_type FR
 10. **Implement slug generation** — Auto-generate unique slug from title
 11. **Implement course ownership checks** — Only instructor-owner or admin can edit
 12. **Write tests** — CRUD operations, file upload, validation errors
+13. **Build Phase 2 frontend routes** — `/app/courses`, `/app/courses/:courseId`
+14. **Implement authoring UI** — metadata editing, module CRUD, reordering, asset upload/download/delete
+15. **Expose draft validation endpoint** — POST `/courses/{id}/validate`
+16. **Expose rich draft content endpoints** — GET/PATCH `/courses/{id}/draft-content`
+17. **Write frontend tests** — route protection and course authoring API behavior
 
 ### Testable Outcome
 
@@ -348,11 +354,23 @@ curl http://localhost/api/v1/courses/<course_id>/modules/<module_id>/assets/<ass
   -H 'Authorization: Bearer <instructor_token>'
 # → 200: {download_url: "https://...presigned..."}
 
-# 6. Validate draft (should fail — add validation issues)
-# Validation runs as part of publish preparation (Phase 3)
+# 6. Validate draft
+curl -X POST http://localhost/api/v1/courses/<course_id>/validate \
+  -H 'Authorization: Bearer <instructor_token>'
+# → 200: {is_valid: false, issues: [...]} until required metadata/modules exist
 
-# 7. Verify MinIO has the file
+# 7. Persist rich draft content in MongoDB
+curl -X PATCH http://localhost/api/v1/courses/<course_id>/draft-content \
+  -H 'Authorization: Bearer <instructor_token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"content":{"overview":"Draft notes","learning_objectives":["Explain ML basics"]}}'
+# → 200: Mongo-backed draft content document
+
+# 8. Verify MinIO has the file
 # MinIO UI: http://localhost:9001 → Browse course-assets bucket
+
+# 9. Exercise the same flow through the first-party web app
+# Login as an instructor/admin and open /app/courses
 ```
 
 ### Exit Criteria
@@ -362,7 +380,9 @@ curl http://localhost/api/v1/courses/<course_id>/modules/<module_id>/assets/<ass
 - [ ] Presigned download URL works
 - [ ] Module reordering works
 - [ ] Soft-delete works for courses
+- [ ] Draft validation endpoint returns actionable issues
 - [ ] MongoDB stores rich draft content
+- [ ] First-party web app can drive the full authoring workflow
 - [ ] All tests pass with >80% coverage on course service
 
 ---

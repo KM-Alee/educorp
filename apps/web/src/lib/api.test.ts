@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { getProfile, registerUser } from './api'
+import { getProfile, registerUser, uploadAsset } from './api'
 import { clearSession, getSession, setSession } from './session'
 import { ApiError } from './types'
 
@@ -102,5 +102,51 @@ describe('api client', () => {
         last_name: 'Case',
       }),
     ).rejects.toBeInstanceOf(ApiError)
+  })
+
+  it('sends multipart uploads without forcing a JSON content type', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      success({
+        id: 'asset-id',
+        module_id: 'module-id',
+        title: 'Lecture notes',
+        asset_type: 'pdf',
+        file_name: 'notes.pdf',
+        file_size: 1024,
+        mime_type: 'application/pdf',
+        storage_path: 'course-assets/path',
+        checksum: 'checksum',
+        sort_order: 0,
+        upload_status: 'UPLOADED',
+        created_at: '2026-04-13T00:00:00Z',
+        updated_at: '2026-04-13T00:00:00Z',
+      }),
+    )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    setSession({
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      tokenType: 'bearer',
+      expiresIn: 900,
+      user: {
+        id: 'user-id',
+        email: 'instructor@example.com',
+        roles: ['instructor'],
+      },
+    })
+
+    await uploadAsset('course-id', 'module-id', {
+      file: new File(['%PDF-1.4'], 'notes.pdf', { type: 'application/pdf' }),
+      title: 'Lecture notes',
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    const headers = new Headers(init?.headers)
+
+    expect(headers.has('Content-Type')).toBe(false)
+    expect(headers.get('Authorization')).toBe('Bearer access-token')
+    expect(init?.body).toBeInstanceOf(FormData)
   })
 })

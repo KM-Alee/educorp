@@ -456,6 +456,10 @@ img {
   grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
 }
 
+.content-grid--wide {
+  grid-template-columns: minmax(0, 1.2fr) minmax(20rem, 0.8fr);
+}
+
 .stat-card {
   border: 1px solid var(--color-border);
   border-radius: 10px;
@@ -468,6 +472,10 @@ img {
   margin-top: 0.35rem;
   font-family: var(--font-body);
   font-size: 1.1rem;
+}
+
+.stat-grid--four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .pill-group,
@@ -524,11 +532,151 @@ img {
   color: var(--color-text-muted);
 }
 
+.phase-banner {
+  position: relative;
+  overflow: hidden;
+}
+
+.phase-banner::after {
+  content: '';
+  position: absolute;
+  inset: auto -8% -35% auto;
+  width: 18rem;
+  height: 18rem;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(245, 78, 0, 0.12), rgba(245, 78, 0, 0));
+  pointer-events: none;
+}
+
+.phase-banner--authoring {
+  background: linear-gradient(135deg, rgba(245, 78, 0, 0.06), rgba(159, 201, 162, 0.16));
+}
+
+.phase-banner--editor {
+  background: linear-gradient(135deg, rgba(159, 187, 224, 0.14), rgba(245, 78, 0, 0.04));
+}
+
+.course-card-list,
+.course-panel-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.course-card,
+.module-card,
+.asset-row,
+.validation-issue {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg);
+}
+
+.course-card {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.course-card:hover,
+.course-card--active {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-soft);
+  transform: translateY(-1px);
+}
+
+.course-card__header,
+.module-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.module-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.module-assets {
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.form-grid--inline {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  align-items: end;
+}
+
+.field--compact span {
+  font-size: 0.75rem;
+}
+
+.field--wide {
+  grid-column: span 2;
+}
+
+.field-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--color-text-muted);
+}
+
+.validation-shell {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.validation-summary {
+  border-radius: 10px;
+  padding: 0.95rem 1rem;
+}
+
+.validation-summary--success {
+  background: rgba(31, 138, 101, 0.08);
+  color: var(--color-success);
+}
+
+.validation-summary--warning {
+  background: rgba(245, 78, 0, 0.08);
+  color: var(--color-accent);
+}
+
+.validation-issue {
+  padding: 0.85rem 0.95rem;
+}
+
+.validation-issue span {
+  color: var(--color-text-muted);
+}
+
+.json-editor {
+  min-height: 20rem;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+}
+
+.asset-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 0.95rem;
+}
+
 @media (max-width: 980px) {
   .auth-layout,
   .content-grid,
   .stat-grid,
   .split-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .content-grid--wide,
+  .stat-grid--four,
+  .form-grid--inline {
     grid-template-columns: 1fr;
   }
 

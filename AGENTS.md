@@ -2,7 +2,7 @@
 
 ## Overview
 
-EduCorp is an intelligent course delivery platform: 9 FastAPI microservices communicating via REST, Kafka events, and Temporal workflows. No frontend — REST API only through Traefik.
+EduCorp is an intelligent course delivery platform: a first-party React web app plus 9 FastAPI microservices communicating via REST, Kafka events, and Temporal workflows.
 
 ## Architecture
 
@@ -23,6 +23,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full system design.
 ## Directory Structure
 
 ```
+apps/web/                      # First-party React/Vite frontend
 services/<name>/app/          # FastAPI service code
   main.py                     # App factory + lifespan
   config.py                   # Pydantic Settings
@@ -40,6 +41,7 @@ infra/                        # Docker, Kafka, Temporal, monitoring configs
 ## Tech Stack
 
 - **Language**: Python 3.12+, `from __future__ import annotations`, type hints everywhere
+- **Frontend**: React 19, TypeScript, Vite, TanStack Query, React Router
 - **Package manager**: `uv`
 - **Framework**: FastAPI with app factory pattern + `lifespan`
 - **ORM**: SQLAlchemy 2.0 async, schema-per-service, Alembic migrations

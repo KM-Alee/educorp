@@ -111,5 +111,9 @@ export function useSessionState(): SessionState | null {
 }
 
 export function defaultRouteForSession(session: SessionState): string {
-  return session.user.roles.includes('admin') ? '/app/admin/users' : '/app/profile'
+  if (session.user.roles.includes('instructor') || session.user.roles.includes('admin')) {
+    return '/app/courses'
+  }
+
+  return '/app/profile'
 }

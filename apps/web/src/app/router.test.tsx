@@ -20,6 +20,11 @@ vi.mock('../features/admin/AdminPages', () => ({
   AdminUsersPage: () => <div>Users Page</div>,
 }))
 
+vi.mock('../features/courses/CoursePages', () => ({
+  CourseEditorPage: () => <div>Course Editor Page</div>,
+  CourseWorkspacePage: () => <div>Course Workspace Page</div>,
+}))
+
 import { AppRoutes } from './router'
 import { clearSession, setSession } from '../lib/session'
 
@@ -90,5 +95,23 @@ describe('AppRoutes', () => {
     renderRoutes('/app/admin/users')
 
     expect(screen.getByText('Users Page')).toBeInTheDocument()
+  })
+
+  it('keeps instructors on the course workspace', () => {
+    setSession({
+      accessToken: 'token',
+      refreshToken: 'refresh',
+      tokenType: 'bearer',
+      expiresIn: 900,
+      user: {
+        id: 'instructor-id',
+        email: 'instructor@example.com',
+        roles: ['instructor'],
+      },
+    })
+
+    renderRoutes('/app/courses')
+
+    expect(screen.getByText('Course Workspace Page')).toBeInTheDocument()
   })
 })

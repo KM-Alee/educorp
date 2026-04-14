@@ -8,6 +8,7 @@ import {
   ResetPasswordPage,
   VerifyEmailPage,
 } from '../features/auth/AuthPages'
+import { CourseEditorPage, CourseWorkspacePage } from '../features/courses/CoursePages'
 import { ProfilePage } from '../features/profile/ProfilePage'
 import {
   clearSession,
@@ -37,14 +38,14 @@ function PublicOnlyRoute() {
   return <Outlet />
 }
 
-function RoleRoute({ role }: { role: string }) {
+function RoleRoute({ roles }: { roles: string[] }) {
   const session = useSessionState()
 
   if (!session) {
     return <Navigate to="/login" replace />
   }
 
-  if (!session.user.roles.includes(role)) {
+  if (!roles.some((role) => session.user.roles.includes(role))) {
     return <Navigate to="/app/profile" replace />
   }
 
@@ -58,12 +59,17 @@ function AppShellHeader({ session }: { session: SessionState }) {
     <header className="shell-header">
       <div className="shell-brand">
         <strong>
-          <NavLink to={defaultRouteForSession(session)}>EduCorp Phase 1</NavLink>
+          <NavLink to={defaultRouteForSession(session)}>EduCorp Web</NavLink>
         </strong>
         <span>{session.user.email}</span>
       </div>
 
       <nav className="shell-nav" aria-label="Primary navigation">
+        {session.user.roles.includes('instructor') || session.user.roles.includes('admin') ? (
+          <NavLink className="nav-link" to="/app/courses">
+            Courses
+          </NavLink>
+        ) : null}
         <NavLink className="nav-link" to="/app/profile">
           Profile
         </NavLink>
@@ -138,9 +144,13 @@ export function AppRoutes() {
 
       <Route element={<ProtectedRoute />}>
         <Route path="/app" element={<AppShell />}>
-          <Route index element={<Navigate to="/app/profile" replace />} />
+          <Route index element={<NotFoundRedirect />} />
           <Route path="profile" element={<ProfilePage />} />
-          <Route element={<RoleRoute role="admin" />}>
+          <Route element={<RoleRoute roles={['instructor', 'admin']} />}>
+            <Route path="courses" element={<CourseWorkspacePage />} />
+            <Route path="courses/:courseId" element={<CourseEditorPage />} />
+          </Route>
+          <Route element={<RoleRoute roles={['admin']} />}>
             <Route path="admin/users" element={<AdminUsersPage />} />
             <Route path="admin/instructor-applications" element={<AdminApplicationsPage />} />
           </Route>

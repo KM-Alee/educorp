@@ -12,7 +12,7 @@ Intelligent course delivery platform with a first-party web app and 9 FastAPI mi
 cp .env.example .env
 docker compose up -d
 
-# Frontend (Phase 1 web app)
+# Frontend (Phase 2 web app)
 cd apps/web
 npm install
 npm run dev
@@ -44,6 +44,7 @@ All services are routed through **Traefik** on port 80.
 The first-party learner/admin web app lives in `apps/web` and is developed in parallel with the backend phases.
 
 - Phase 1 scope: registration, login, email verification, password reset, profile, admin user management, instructor application review
+- Phase 2 scope: course draft creation, module CRUD and reordering, asset upload/download/delete, draft validation, Mongo-backed draft content editing
 - Design direction: warm editorial surfaces, restrained depth, and utilitarian auth flows adapted from the `cursor-inspo.md` brief without copying proprietary assets or adding decorative gradients/glow
 - API integration: the web app talks directly to the Traefik-routed APIs under `/api/v1/*`
 
@@ -131,3 +132,4 @@ See the [docs/](docs/) directory for detailed design documentation.
 - `docs/ARCHITECTURE.md` — service and frontend architecture
 - `docs/FRONTEND.md` — web app structure, UI system, and route plan
 - `docs/PHASES.md` — backend and frontend delivery phases
+- `docs/PHASE3_IMPLEMENTATION_PLAN.md` — concrete implementation sequence for publishing and search

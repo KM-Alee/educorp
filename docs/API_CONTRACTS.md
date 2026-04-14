@@ -368,20 +368,19 @@ Create a new course draft. **Auth: instructor.**
 ---
 
 ### GET `/courses`
-Browse course catalog (READY courses only for students).
+Browse courses. Non-privileged callers only see published records; instructors and admins can inspect drafts.
 
 **Query params:**
 - `page`, `page_size` (default 20, max 100)
-- `category`, `difficulty`, `tags` (comma-separated)
+- `category`, `difficulty`
 - `instructor_id`
 - `search` (keyword search in title/description)
-- `sort` (`newest`, `popular`, `title`)
 - `visibility` (instructor/admin only: `DRAFT`, `PUBLISHED`, `ARCHIVED`)
 
 ---
 
 ### GET `/courses/{course_id}`
-Get course details. Students see READY version content only.
+Get course details for the current draft or published record.
 
 **Response (200):**
 ```json
@@ -391,11 +390,6 @@ Get course details. Students see READY version content only.
     "title": "Introduction to Machine Learning",
     "slug": "introduction-to-machine-learning",
     "description": "...",
-    "instructor": {
-      "id": "uuid",
-      "first_name": "Dr. Smith",
-      "last_name": "Johnson"
-    },
     "category": "Computer Science",
     "difficulty": "beginner",
     "estimated_duration": "PT40H",
@@ -410,17 +404,10 @@ Get course details. Students see READY version content only.
         "asset_count": 3
       }
     ],
-    "current_version": {
-      "id": "uuid",
-      "version_number": 2,
-      "status": "READY",
-      "ready_at": "ISO8601"
-    },
-    "enrollment_count": 150,
+    "current_version_id": null,
     "max_capacity": 200,
-    "is_enrolled": false,
     "is_public_preview": true,
-    "visibility": "PUBLISHED"
+    "visibility": "DRAFT"
   }
 }
 ```
@@ -442,6 +429,62 @@ Update course draft. **Auth: course owner or admin.**
 
 ### DELETE `/courses/{course_id}`
 Soft-delete a course. **Auth: course owner or admin.**
+
+---
+
+### POST `/courses/{course_id}/validate`
+Run draft validation checks. **Auth: course owner or admin.**
+
+**Response (200):**
+```json
+{
+  "data": {
+    "is_valid": false,
+    "issues": [
+      {
+        "field": "modules",
+        "message": "At least one module is required",
+        "severity": "error"
+      }
+    ]
+  }
+}
+```
+
+---
+
+### GET `/courses/{course_id}/draft-content`
+Read Mongo-backed rich draft content. **Auth: course owner or admin.**
+
+**Response (200):**
+```json
+{
+  "data": {
+    "course_id": "uuid",
+    "content": {
+      "overview": "Draft notes",
+      "learning_objectives": ["Explain ML basics"]
+    },
+    "updated_at": "ISO8601"
+  }
+}
+```
+
+---
+
+### PATCH `/courses/{course_id}/draft-content`
+Persist Mongo-backed rich draft content. **Auth: course owner or admin.**
+
+**Request:**
+```json
+{
+  "content": {
+    "overview": "Draft notes",
+    "learning_objectives": ["Explain ML basics"],
+    "lesson_notes": []
+  }
+}
+```
 
 ---
 
