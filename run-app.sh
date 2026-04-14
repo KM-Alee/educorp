@@ -24,6 +24,17 @@ echo "Starting EduCorp stack..."
 docker compose up -d
 
 echo ""
+echo "Waiting for services to be ready..."
+echo "  (this may take up to 60s on first run)"
+# Wait for auth service to respond before seeding
+for i in $(seq 1 30); do
+  if docker compose exec -T auth-service python -c "import sys; sys.exit(0)" 2>/dev/null; then
+    break
+  fi
+  sleep 2
+done
+
+echo ""
 echo "EduCorp is running"
 echo ""
 echo "┌─────────────────────────────────────────────────────────┐"

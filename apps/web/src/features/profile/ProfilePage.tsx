@@ -90,121 +90,116 @@ export function ProfilePage() {
 
   return (
     <div className="page-stack">
-      <section className="page-hero">
-        <span className="eyebrow">Profile</span>
-        <div className="page-stack">
-          <h1 className="page-title">Account center</h1>
-          <p className="lede">
-            Phase 1 uses the same auth API as Swagger and curl-based verification, but exercises it through a calmer operational shell.
-          </p>
+      <div className="page-header">
+        <h1 className="page-header__title">Profile</h1>
+        <p className="page-header__description">Manage your account details and settings.</p>
+      </div>
+
+      <div className="stat-row">
+        <div className="stat-item">
+          <div className="stat-item__label">Email</div>
+          <div className="stat-item__value">{session?.user.email ?? 'Unknown'}</div>
         </div>
-      </section>
+        <div className="stat-item">
+          <div className="stat-item__label">Roles</div>
+          <div className="stat-item__value">{session?.user.roles.join(', ') ?? 'None'}</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-item__label">Status</div>
+          <div className="stat-item__value">
+            {profileQuery.data?.is_verified ? 'Verified' : 'Pending verification'}
+          </div>
+        </div>
+      </div>
 
-      <section className="stat-grid">
-        <article className="stat-card">
-          <strong>Signed in as</strong>
-          <span>{session?.user.email ?? 'Unknown user'}</span>
-        </article>
-        <article className="stat-card">
-          <strong>Roles</strong>
-          <span>{session?.user.roles.join(', ') ?? 'None'}</span>
-        </article>
-        <article className="stat-card">
-          <strong>Status</strong>
-          <span>{profileQuery.data?.is_verified ? 'Verified' : 'Verification pending'}</span>
-        </article>
-      </section>
+      <div className="page-columns">
+        <div className="card">
+          <div className="card__header">
+            <h2 className="card__title">Personal details</h2>
+            <p className="card__description">Update your name and avatar.</p>
+          </div>
 
-      <section className="content-grid">
-        <article className="section-card">
-          <div className="page-stack">
-            <div>
-              <h2>Personal details</h2>
-              <p>Update the fields exposed by PATCH /auth/me.</p>
+          {profileQuery.isError ? (
+            <div className="message message--error" role="alert">
+              {getErrorMessage(profileQuery.error)}
+            </div>
+          ) : null}
+
+          <form
+            className="form-stack"
+            onSubmit={profileForm.handleSubmit((values) => profileMutation.mutate(values))}
+          >
+            <div className="form-row">
+              <label className="form-field">
+                <span className="form-field__label">First name</span>
+                <input {...profileForm.register('first_name')} />
+              </label>
+              <label className="form-field">
+                <span className="form-field__label">Last name</span>
+                <input {...profileForm.register('last_name')} />
+              </label>
             </div>
 
-            {profileQuery.isError ? (
+            <label className="form-field">
+              <span className="form-field__label">Avatar URL</span>
+              <input placeholder="https://example.com/avatar.jpg" {...profileForm.register('avatar_url')} />
+            </label>
+
+            {profileMutation.isError ? (
               <div className="message message--error" role="alert">
-                {getErrorMessage(profileQuery.error)}
+                {getErrorMessage(profileMutation.error)}
               </div>
             ) : null}
 
-            <form
-              className="form-grid"
-              onSubmit={profileForm.handleSubmit((values) => profileMutation.mutate(values))}
-            >
-              <div className="split-grid">
-                <label className="field">
-                  <span>First name</span>
-                  <input {...profileForm.register('first_name')} />
-                </label>
-                <label className="field">
-                  <span>Last name</span>
-                  <input {...profileForm.register('last_name')} />
-                </label>
+            {profileMutation.isSuccess ? (
+              <div className="message message--success" role="status">
+                Profile updated.
               </div>
+            ) : null}
 
-              <label className="field">
-                <span>Avatar URL</span>
-                <input placeholder="https://example.com/avatar.jpg" {...profileForm.register('avatar_url')} />
-              </label>
-
-              {profileMutation.isError ? (
-                <div className="message message--error" role="alert">
-                  {getErrorMessage(profileMutation.error)}
-                </div>
-              ) : null}
-
-              {profileMutation.isSuccess ? (
-                <div className="message message--success" role="status">
-                  Profile updated.
-                </div>
-              ) : null}
-
-              <div className="button-row">
-                <button className="button button--accent" disabled={profileMutation.isPending} type="submit">
-                  {profileMutation.isPending ? 'Saving...' : 'Save profile'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </article>
-
-        <aside className="section-card">
-          <div className="page-stack">
-            <div>
-              <h2>Session notes</h2>
-              <p>Auth remains server-authoritative. The UI only mirrors what the API returns.</p>
+            <div className="btn-row">
+              <button className="btn btn--primary" disabled={profileMutation.isPending} type="submit">
+                {profileMutation.isPending ? 'Saving...' : 'Save changes'}
+              </button>
             </div>
+          </form>
+        </div>
 
+        <div className="page-stack">
+          <div className="card">
+            <div className="card__header">
+              <h2 className="card__title">Account info</h2>
+            </div>
             <div className="meta-list">
-              <div className="meta-card" style={{ padding: '0.95rem' }}>
-                <strong>Account ID</strong>
-                <span className="mono">{profileQuery.data?.id ?? session?.user.id}</span>
+              <div className="meta-item">
+                <div className="meta-item__label">Account ID</div>
+                <div className="meta-item__value mono">{profileQuery.data?.id ?? session?.user.id}</div>
               </div>
-              <div className="meta-card" style={{ padding: '0.95rem' }}>
-                <strong>Verified</strong>
-                <span>{profileQuery.data?.is_verified ? 'Yes' : 'No'}</span>
+              <div className="meta-item">
+                <div className="meta-item__label">Verified</div>
+                <div className="meta-item__value">{profileQuery.data?.is_verified ? 'Yes' : 'No'}</div>
               </div>
-              <div className="meta-card" style={{ padding: '0.95rem' }}>
-                <strong>Admin desk</strong>
-                <span>{isAdmin ? 'Available in navigation' : 'Hidden until role changes'}</span>
+              <div className="meta-item">
+                <div className="meta-item__label">Admin access</div>
+                <div className="meta-item__value">{isAdmin ? 'Enabled' : 'Disabled'}</div>
               </div>
             </div>
+          </div>
 
-            {!isAdmin && !isInstructor ? (
+          {!isAdmin && !isInstructor ? (
+            <div className="card">
+              <div className="card__header">
+                <h2 className="card__title">Instructor application</h2>
+                <p className="card__description">Apply to become an instructor on EduCorp.</p>
+              </div>
+
               <form
-                className="form-grid"
+                className="form-stack"
                 onSubmit={applicationForm.handleSubmit((values) => applicationMutation.mutate(values))}
               >
-                <div>
-                  <h3>Instructor application</h3>
-                  <p>Submit the Phase 1 student-to-instructor request from the profile surface.</p>
-                </div>
-
-                <label className="field">
-                  <span>Reason</span>
-                  <textarea placeholder="Share why you should teach on EduCorp." {...applicationForm.register('reason')} />
+                <label className="form-field">
+                  <span className="form-field__label">Reason</span>
+                  <textarea placeholder="Describe why you want to teach on EduCorp." {...applicationForm.register('reason')} />
                 </label>
 
                 {applicationMutation.isError ? (
@@ -215,18 +210,18 @@ export function ProfilePage() {
 
                 {applicationMutation.isSuccess ? (
                   <div className="message message--success" role="status">
-                    Application submitted with status {applicationMutation.data.status}.
+                    Application submitted ({applicationMutation.data.status}).
                   </div>
                 ) : null}
 
-                <button className="button" disabled={applicationMutation.isPending} type="submit">
-                  {applicationMutation.isPending ? 'Submitting...' : 'Apply'}
+                <button className="btn btn--primary" disabled={applicationMutation.isPending} type="submit">
+                  {applicationMutation.isPending ? 'Submitting...' : 'Submit application'}
                 </button>
               </form>
-            ) : null}
-          </div>
-        </aside>
-      </section>
+            </div>
+          ) : null}
+        </div>
+      </div>
     </div>
   )
 }

@@ -61,35 +61,26 @@ function parseDraftContent(raw: string): Record<string, unknown> {
   if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
     throw new Error('Draft content must be a JSON object.')
   }
-
   return parsed as Record<string, unknown>
 }
 
-function PageMessage({ type, text }: { type: 'success' | 'error'; text: string }) {
+function StatusMsg({ type, text }: { type: 'success' | 'error'; text: string }) {
   return <div className={`message message--${type}`}>{text}</div>
 }
 
-function CourseSummaryCard({
-  course,
-  active,
-}: {
-  course: CourseListItem
-  active: boolean
-}) {
+function CourseListItem({ course }: { course: CourseListItem }) {
   return (
-    <Link className={`course-card ${active ? 'course-card--active' : ''}`} to={`/app/courses/${course.id}`}>
-      <div className="course-card__header">
-        <div>
-          <strong>{course.title}</strong>
-          <div className="table-note">{course.short_description || 'No short description yet.'}</div>
+    <Link className="course-item" to={`/app/courses/${course.id}`}>
+      <div className="course-item__info">
+        <div className="course-item__title">{course.title}</div>
+        <div className="course-item__meta">
+          {course.short_description || 'No description'}
         </div>
-        <span className="pill">{course.visibility}</span>
       </div>
-
-      <div className="pill-group">
-        {course.category ? <span className="pill">{course.category}</span> : null}
-        {course.difficulty ? <span className="pill">{course.difficulty}</span> : null}
-        {course.estimated_duration ? <span className="pill mono">{course.estimated_duration}</span> : null}
+      <div className="course-item__badges">
+        {course.category ? <span className="badge">{course.category}</span> : null}
+        {course.difficulty ? <span className="badge">{course.difficulty}</span> : null}
+        <span className="badge badge--accent">{course.visibility}</span>
       </div>
     </Link>
   )
@@ -129,166 +120,145 @@ export function CourseWorkspacePage() {
 
   return (
     <div className="page-stack">
-      <section className="page-hero phase-banner phase-banner--authoring">
-        <div className="page-stack">
-          <span className="eyebrow">Phase 2</span>
-          <h1 className="page-title">Course authoring desk</h1>
-          <p className="lede">
-            Create draft courses, move into module and asset work, and validate drafts from the same operational surface used to test the course service.
-          </p>
-        </div>
-      </section>
+      <div className="page-header">
+        <h1 className="page-header__title">Courses</h1>
+        <p className="page-header__description">Create and manage draft courses.</p>
+      </div>
 
-      <section className="content-grid content-grid--wide">
-        <article className="section-card">
-          <div className="page-stack">
-            <div>
-              <h2>Create a draft course</h2>
-              <p>Start from the live course API and jump directly into editing once the draft is created.</p>
-            </div>
-
-            <form
-              className="form-grid"
-              onSubmit={(event) => {
-                event.preventDefault()
-                createCourseMutation.mutate({
-                  ...draft,
-                  tags: tagsFromInput(tagsInput),
-                })
-              }}
-            >
-              <label className="field">
-                <span>Title</span>
-                <input
-                  value={draft.title}
-                  onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-                />
-              </label>
-
-              <label className="field">
-                <span>Description</span>
-                <textarea
-                  value={draft.description ?? ''}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, description: event.target.value }))
-                  }
-                />
-              </label>
-
-              <div className="split-grid">
-                <label className="field">
-                  <span>Short description</span>
-                  <input
-                    value={draft.short_description ?? ''}
-                    onChange={(event) =>
-                      setDraft((current) => ({ ...current, short_description: event.target.value }))
-                    }
-                  />
-                </label>
-
-                <label className="field">
-                  <span>Category</span>
-                  <input
-                    value={draft.category ?? ''}
-                    onChange={(event) =>
-                      setDraft((current) => ({ ...current, category: event.target.value }))
-                    }
-                  />
-                </label>
-              </div>
-
-              <div className="split-grid">
-                <label className="field">
-                  <span>Difficulty</span>
-                  <select
-                    value={draft.difficulty ?? ''}
-                    onChange={(event) =>
-                      setDraft((current) => ({ ...current, difficulty: event.target.value }))
-                    }
-                  >
-                    <option value="beginner">Beginner</option>
-                    <option value="intermediate">Intermediate</option>
-                    <option value="advanced">Advanced</option>
-                  </select>
-                </label>
-
-                <label className="field">
-                  <span>Estimated duration</span>
-                  <input
-                    placeholder="PT4H"
-                    value={draft.estimated_duration ?? ''}
-                    onChange={(event) =>
-                      setDraft((current) => ({ ...current, estimated_duration: event.target.value }))
-                    }
-                  />
-                </label>
-              </div>
-
-              <label className="field">
-                <span>Tags</span>
-                <input
-                  placeholder="python, ml, pedagogy"
-                  value={tagsInput}
-                  onChange={(event) => setTagsInput(event.target.value)}
-                />
-              </label>
-
-              {createCourseMutation.isError ? (
-                <PageMessage type="error" text={getErrorMessage(createCourseMutation.error)} />
-              ) : null}
-
-              <div className="button-row">
-                <button className="button button--accent" disabled={createCourseMutation.isPending} type="submit">
-                  {createCourseMutation.isPending ? 'Creating...' : 'Create draft'}
-                </button>
-              </div>
-            </form>
+      <div className="page-columns--wide page-columns">
+        <div className="card">
+          <div className="card__header">
+            <h2 className="card__title">New draft</h2>
+            <p className="card__description">Create a course and start editing immediately.</p>
           </div>
-        </article>
 
-        <aside className="section-card">
-          <div className="page-stack">
-            <div>
-              <h2>Open a draft</h2>
-              <p>Filter the live draft catalog, then open a course to manage modules, assets, validation, and rich content.</p>
+          <form
+            className="form-stack"
+            onSubmit={(e) => {
+              e.preventDefault()
+              createCourseMutation.mutate({
+                ...draft,
+                tags: tagsFromInput(tagsInput),
+              })
+            }}
+          >
+            <label className="form-field">
+              <span className="form-field__label">Title</span>
+              <input
+                value={draft.title}
+                onChange={(e) => setDraft((c) => ({ ...c, title: e.target.value }))}
+              />
+            </label>
+
+            <label className="form-field">
+              <span className="form-field__label">Description</span>
+              <textarea
+                value={draft.description ?? ''}
+                onChange={(e) => setDraft((c) => ({ ...c, description: e.target.value }))}
+              />
+            </label>
+
+            <div className="form-row">
+              <label className="form-field">
+                <span className="form-field__label">Short description</span>
+                <input
+                  value={draft.short_description ?? ''}
+                  onChange={(e) => setDraft((c) => ({ ...c, short_description: e.target.value }))}
+                />
+              </label>
+              <label className="form-field">
+                <span className="form-field__label">Category</span>
+                <input
+                  value={draft.category ?? ''}
+                  onChange={(e) => setDraft((c) => ({ ...c, category: e.target.value }))}
+                />
+              </label>
             </div>
 
-            <div className="filter-row">
-              <label className="field field--compact">
-                <span>Search</span>
-                <input value={search} onChange={(event) => setSearch(event.target.value)} />
-              </label>
-              <label className="field field--compact">
-                <span>Category</span>
-                <input value={category} onChange={(event) => setCategory(event.target.value)} />
-              </label>
-              <label className="field field--compact">
-                <span>Difficulty</span>
-                <select value={difficulty} onChange={(event) => setDifficulty(event.target.value)}>
-                  <option value="">All</option>
+            <div className="form-row">
+              <label className="form-field">
+                <span className="form-field__label">Difficulty</span>
+                <select
+                  value={draft.difficulty ?? ''}
+                  onChange={(e) => setDraft((c) => ({ ...c, difficulty: e.target.value }))}
+                >
                   <option value="beginner">Beginner</option>
                   <option value="intermediate">Intermediate</option>
                   <option value="advanced">Advanced</option>
                 </select>
               </label>
+              <label className="form-field">
+                <span className="form-field__label">Estimated duration</span>
+                <input
+                  placeholder="PT4H"
+                  value={draft.estimated_duration ?? ''}
+                  onChange={(e) => setDraft((c) => ({ ...c, estimated_duration: e.target.value }))}
+                />
+              </label>
             </div>
 
-            {coursesQuery.isError ? (
-              <PageMessage type="error" text={getErrorMessage(coursesQuery.error)} />
+            <label className="form-field">
+              <span className="form-field__label">Tags</span>
+              <input
+                placeholder="python, ml, pedagogy"
+                value={tagsInput}
+                onChange={(e) => setTagsInput(e.target.value)}
+              />
+            </label>
+
+            {createCourseMutation.isError ? (
+              <StatusMsg type="error" text={getErrorMessage(createCourseMutation.error)} />
             ) : null}
 
-            <div className="course-card-list">
-              {coursesQuery.data?.data.map((course) => (
-                <CourseSummaryCard active={false} course={course} key={course.id} />
-              ))}
+            <div className="btn-row">
+              <button className="btn btn--primary" disabled={createCourseMutation.isPending} type="submit">
+                {createCourseMutation.isPending ? 'Creating...' : 'Create draft'}
+              </button>
             </div>
+          </form>
+        </div>
 
-            {!coursesQuery.isLoading && !coursesQuery.data?.data.length ? (
-              <div className="empty-state">No drafts match the current filter.</div>
-            ) : null}
+        <div className="card">
+          <div className="card__header">
+            <h2 className="card__title">Draft courses</h2>
+            <p className="card__description">Filter and open existing drafts.</p>
           </div>
-        </aside>
-      </section>
+
+          <div className="filter-bar" style={{ marginBottom: '0.75rem' }}>
+            <label className="form-field">
+              <span className="form-field__label">Search</span>
+              <input value={search} onChange={(e) => setSearch(e.target.value)} />
+            </label>
+            <label className="form-field">
+              <span className="form-field__label">Category</span>
+              <input value={category} onChange={(e) => setCategory(e.target.value)} />
+            </label>
+            <label className="form-field">
+              <span className="form-field__label">Difficulty</span>
+              <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}>
+                <option value="">All</option>
+                <option value="beginner">Beginner</option>
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+              </select>
+            </label>
+          </div>
+
+          {coursesQuery.isError ? (
+            <StatusMsg type="error" text={getErrorMessage(coursesQuery.error)} />
+          ) : null}
+
+          <div className="course-list">
+            {coursesQuery.data?.data.map((course) => (
+              <CourseListItem course={course} key={course.id} />
+            ))}
+          </div>
+
+          {!coursesQuery.isLoading && !coursesQuery.data?.data.length ? (
+            <div className="empty">No drafts match the current filter.</div>
+          ) : null}
+        </div>
+      </div>
     </div>
   )
 }
@@ -336,66 +306,58 @@ function ModuleAssetManager({
   })
 
   return (
-    <div className="module-assets page-stack">
+    <div className="module-panel__assets">
       <form
-        className="form-grid form-grid--inline"
-        onSubmit={(event) => {
-          event.preventDefault()
-          if (!assetFile) {
-            return
-          }
-
+        className="form-stack"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (!assetFile) return
           uploadMutation.mutate({ file: assetFile, title: assetTitle || assetFile.name })
         }}
       >
-        <label className="field field--compact">
-          <span>Asset title</span>
-          <input value={assetTitle} onChange={(event) => setAssetTitle(event.target.value)} />
-        </label>
-
-        <label className="field field--compact">
-          <span>File</span>
-          <input
-            accept=".pdf,.docx,.pptx,.txt,.md,.vtt,.srt"
-            onChange={(event) => setAssetFile(event.target.files?.[0] ?? null)}
-            type="file"
-          />
-        </label>
-
-        <button className="button button--small" disabled={!assetFile || uploadMutation.isPending} type="submit">
-          {uploadMutation.isPending ? 'Uploading...' : 'Upload'}
-        </button>
+        <div className="form-row">
+          <label className="form-field">
+            <span className="form-field__label">Asset title</span>
+            <input value={assetTitle} onChange={(e) => setAssetTitle(e.target.value)} />
+          </label>
+          <label className="form-field">
+            <span className="form-field__label">File</span>
+            <input
+              accept=".pdf,.docx,.pptx,.txt,.md,.vtt,.srt"
+              onChange={(e) => setAssetFile(e.target.files?.[0] ?? null)}
+              type="file"
+            />
+          </label>
+        </div>
+        <div className="btn-row">
+          <button className="btn btn--sm" disabled={!assetFile || uploadMutation.isPending} type="submit">
+            {uploadMutation.isPending ? 'Uploading...' : 'Upload'}
+          </button>
+        </div>
       </form>
 
-      {uploadMutation.isError ? <PageMessage type="error" text={getErrorMessage(uploadMutation.error)} /> : null}
-      {deleteMutation.isError ? <PageMessage type="error" text={getErrorMessage(deleteMutation.error)} /> : null}
-      {downloadMutation.isError ? <PageMessage type="error" text={getErrorMessage(downloadMutation.error)} /> : null}
+      {uploadMutation.isError ? <StatusMsg type="error" text={getErrorMessage(uploadMutation.error)} /> : null}
+      {deleteMutation.isError ? <StatusMsg type="error" text={getErrorMessage(deleteMutation.error)} /> : null}
 
-      <div className="course-panel-list">
-        {assetsQuery.data?.map((asset: AssetOut) => (
-          <article className="meta-card asset-row" key={asset.id}>
-            <div>
-              <strong>{asset.title}</strong>
-              <div className="table-note mono">{asset.file_name}</div>
-            </div>
-            <div className="button-row">
-              <button className="button button--small" onClick={() => downloadMutation.mutate(asset.id)} type="button">
-                Download
-              </button>
-              <button
-                className="button button--small button--ghost"
-                onClick={() => deleteMutation.mutate(asset.id)}
-                type="button"
-              >
-                Delete
-              </button>
-            </div>
-          </article>
-        ))}
-      </div>
+      {assetsQuery.data?.map((asset: AssetOut) => (
+        <div className="asset-row" key={asset.id}>
+          <div className="asset-row__info">
+            <div className="asset-row__name">{asset.title}</div>
+            <div className="asset-row__file">{asset.file_name}</div>
+          </div>
+          <div className="btn-row">
+            <button className="btn btn--sm" onClick={() => downloadMutation.mutate(asset.id)} type="button">
+              Download
+            </button>
+            <button className="btn btn--sm btn--ghost" onClick={() => deleteMutation.mutate(asset.id)} type="button">
+              Delete
+            </button>
+          </div>
+        </div>
+      ))}
 
       {!assetsQuery.isLoading && !assetsQuery.data?.length ? (
-        <div className="empty-state">No assets uploaded for this module yet.</div>
+        <div className="empty" style={{ marginTop: '0.5rem' }}>No assets uploaded yet.</div>
       ) : null}
     </div>
   )
@@ -429,10 +391,7 @@ export function CourseEditorPage() {
   })
 
   useEffect(() => {
-    if (!courseQuery.data) {
-      return
-    }
-
+    if (!courseQuery.data) return
     setCourseForm({
       title: courseQuery.data.title,
       description: courseQuery.data.description ?? '',
@@ -447,36 +406,23 @@ export function CourseEditorPage() {
   }, [courseQuery.data])
 
   useEffect(() => {
-    if (!draftContentQuery.data) {
-      return
-    }
-
+    if (!draftContentQuery.data) return
     setDraftContentText(stringifyContent(draftContentQuery.data))
   }, [draftContentQuery.data])
 
   useEffect(() => {
-    if (!modulesQuery.data) {
-      return
-    }
-
+    if (!modulesQuery.data) return
     setModuleEdits(
-      modulesQuery.data.reduce<Record<string, Pick<ModuleDetail, 'title' | 'description' | 'is_required'>>>((accumulator, module) => {
-        accumulator[module.id] = {
-          title: module.title,
-          description: module.description,
-          is_required: module.is_required,
-        }
-        return accumulator
+      modulesQuery.data.reduce<Record<string, Pick<ModuleDetail, 'title' | 'description' | 'is_required'>>>((acc, m) => {
+        acc[m.id] = { title: m.title, description: m.description, is_required: m.is_required }
+        return acc
       }, {}),
     )
   }, [modulesQuery.data])
 
   const updateCourseMutation = useMutation({
     mutationFn: (input: CourseCreateInput) =>
-      updateCourse(courseId, {
-        ...input,
-        tags: tagsFromInput(courseTagsInput),
-      }),
+      updateCourse(courseId, { ...input, tags: tagsFromInput(courseTagsInput) }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['course', courseId] })
       await queryClient.invalidateQueries({ queryKey: ['courses'] })
@@ -493,11 +439,7 @@ export function CourseEditorPage() {
 
   const createModuleMutation = useMutation({
     mutationFn: () =>
-      createModule(courseId, {
-        title: moduleTitle,
-        description: moduleDescription,
-        is_required: true,
-      }),
+      createModule(courseId, { title: moduleTitle, description: moduleDescription, is_required: true }),
     onSuccess: async () => {
       setModuleTitle('')
       setModuleDescription('')
@@ -550,391 +492,359 @@ export function CourseEditorPage() {
   const modules = modulesQuery.data ?? []
 
   function moveModule(moduleId: string, direction: -1 | 1) {
-    const currentOrder = modules.map((module) => module.id)
-    const currentIndex = currentOrder.indexOf(moduleId)
-    const nextIndex = currentIndex + direction
-
-    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= currentOrder.length) {
-      return
-    }
-
+    const currentOrder = modules.map((m) => m.id)
+    const idx = currentOrder.indexOf(moduleId)
+    const next = idx + direction
+    if (idx < 0 || next < 0 || next >= currentOrder.length) return
     const reordered = [...currentOrder]
-    const swapped = reordered[nextIndex]
-    reordered[nextIndex] = reordered[currentIndex]
-    reordered[currentIndex] = swapped
+    const swapped = reordered[next]
+    reordered[next] = reordered[idx]
+    reordered[idx] = swapped
     reorderModulesMutation.mutate(reordered)
   }
 
   if (courseQuery.isLoading) {
-    return <div className="empty-state">Loading course workspace...</div>
+    return <div className="empty">Loading course...</div>
   }
 
   if (courseQuery.isError) {
-    return <PageMessage type="error" text={getErrorMessage(courseQuery.error)} />
+    return <StatusMsg type="error" text={getErrorMessage(courseQuery.error)} />
   }
 
   const validationResult = validateDraftMutation.data
 
   return (
     <div className="page-stack">
-      <section className="page-hero phase-banner phase-banner--editor">
-        <div className="page-stack">
-          <div className="inline-links">
-            <Link to="/app/courses">Back to draft list</Link>
-          </div>
-          <span className="eyebrow">Phase 2</span>
-          <h1 className="page-title">{courseQuery.data?.title}</h1>
-          <p className="lede">
-            Edit the draft, structure modules, attach assets, validate readiness, and persist richer authoring content in MongoDB.
-          </p>
+      <div className="page-header">
+        <div className="page-header__breadcrumb">
+          <Link to="/app/courses">Courses</Link>
+          <span>/</span>
+          <span>{courseQuery.data?.title}</span>
         </div>
-      </section>
+        <h1 className="page-header__title">{courseQuery.data?.title}</h1>
+        <p className="page-header__description">Edit course details, manage modules and assets, and validate the draft.</p>
+      </div>
 
-      <section className="stat-grid stat-grid--four">
-        <article className="stat-card">
-          <strong>Visibility</strong>
-          <span>{courseQuery.data?.visibility}</span>
-        </article>
-        <article className="stat-card">
-          <strong>Modules</strong>
-          <span>{modules.length}</span>
-        </article>
-        <article className="stat-card">
-          <strong>Slug</strong>
-          <span className="mono">{courseQuery.data?.slug}</span>
-        </article>
-        <article className="stat-card">
-          <strong>Last update</strong>
-          <span>{new Date(courseQuery.data?.updated_at ?? '').toLocaleString()}</span>
-        </article>
-      </section>
+      <div className="stat-row">
+        <div className="stat-item">
+          <div className="stat-item__label">Visibility</div>
+          <div className="stat-item__value">{courseQuery.data?.visibility}</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-item__label">Modules</div>
+          <div className="stat-item__value">{modules.length}</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-item__label">Slug</div>
+          <div className="stat-item__value mono">{courseQuery.data?.slug}</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-item__label">Updated</div>
+          <div className="stat-item__value">{new Date(courseQuery.data?.updated_at ?? '').toLocaleString()}</div>
+        </div>
+      </div>
 
-      <section className="content-grid content-grid--wide">
-        <article className="section-card page-stack">
-          <div>
-            <h2>Course details</h2>
-            <p>PATCH the live course record and keep metadata in a publishable state.</p>
+      {/* Details + Validation */}
+      <div className="page-columns--wide page-columns">
+        <div className="card">
+          <div className="card__header">
+            <h2 className="card__title">Course details</h2>
           </div>
 
           <form
-            className="form-grid"
-            onSubmit={(event) => {
-              event.preventDefault()
+            className="form-stack"
+            onSubmit={(e) => {
+              e.preventDefault()
               updateCourseMutation.mutate(courseForm)
             }}
           >
-            <label className="field">
-              <span>Title</span>
+            <label className="form-field">
+              <span className="form-field__label">Title</span>
               <input
                 value={courseForm.title}
-                onChange={(event) =>
-                  setCourseForm((current) => ({ ...current, title: event.target.value }))
-                }
+                onChange={(e) => setCourseForm((c) => ({ ...c, title: e.target.value }))}
               />
             </label>
 
-            <label className="field">
-              <span>Description</span>
+            <label className="form-field">
+              <span className="form-field__label">Description</span>
               <textarea
                 value={courseForm.description ?? ''}
-                onChange={(event) =>
-                  setCourseForm((current) => ({ ...current, description: event.target.value }))
-                }
+                onChange={(e) => setCourseForm((c) => ({ ...c, description: e.target.value }))}
               />
             </label>
 
-            <div className="split-grid">
-              <label className="field">
-                <span>Short description</span>
+            <div className="form-row">
+              <label className="form-field">
+                <span className="form-field__label">Short description</span>
                 <input
                   value={courseForm.short_description ?? ''}
-                  onChange={(event) =>
-                    setCourseForm((current) => ({ ...current, short_description: event.target.value }))
-                  }
+                  onChange={(e) => setCourseForm((c) => ({ ...c, short_description: e.target.value }))}
                 />
               </label>
-              <label className="field">
-                <span>Category</span>
+              <label className="form-field">
+                <span className="form-field__label">Category</span>
                 <input
                   value={courseForm.category ?? ''}
-                  onChange={(event) =>
-                    setCourseForm((current) => ({ ...current, category: event.target.value }))
-                  }
+                  onChange={(e) => setCourseForm((c) => ({ ...c, category: e.target.value }))}
                 />
               </label>
             </div>
 
-            <div className="split-grid">
-              <label className="field">
-                <span>Difficulty</span>
+            <div className="form-row">
+              <label className="form-field">
+                <span className="form-field__label">Difficulty</span>
                 <select
                   value={courseForm.difficulty ?? ''}
-                  onChange={(event) =>
-                    setCourseForm((current) => ({ ...current, difficulty: event.target.value }))
-                  }
+                  onChange={(e) => setCourseForm((c) => ({ ...c, difficulty: e.target.value }))}
                 >
                   <option value="beginner">Beginner</option>
                   <option value="intermediate">Intermediate</option>
                   <option value="advanced">Advanced</option>
                 </select>
               </label>
-              <label className="field">
-                <span>Estimated duration</span>
+              <label className="form-field">
+                <span className="form-field__label">Estimated duration</span>
                 <input
                   value={courseForm.estimated_duration ?? ''}
-                  onChange={(event) =>
-                    setCourseForm((current) => ({ ...current, estimated_duration: event.target.value }))
-                  }
+                  onChange={(e) => setCourseForm((c) => ({ ...c, estimated_duration: e.target.value }))}
                 />
               </label>
             </div>
 
-            <label className="field">
-              <span>Tags</span>
-              <input value={courseTagsInput} onChange={(event) => setCourseTagsInput(event.target.value)} />
+            <label className="form-field">
+              <span className="form-field__label">Tags</span>
+              <input value={courseTagsInput} onChange={(e) => setCourseTagsInput(e.target.value)} />
             </label>
 
-            {updateCourseMutation.isError ? (
-              <PageMessage type="error" text={getErrorMessage(updateCourseMutation.error)} />
-            ) : null}
+            {updateCourseMutation.isError ? <StatusMsg type="error" text={getErrorMessage(updateCourseMutation.error)} /> : null}
+            {updateCourseMutation.isSuccess ? <StatusMsg type="success" text="Course details saved." /> : null}
 
-            {updateCourseMutation.isSuccess ? <PageMessage type="success" text="Course details saved." /> : null}
-
-            <div className="button-row">
-              <button className="button button--accent" disabled={updateCourseMutation.isPending} type="submit">
+            <div className="btn-row">
+              <button className="btn btn--primary" disabled={updateCourseMutation.isPending} type="submit">
                 {updateCourseMutation.isPending ? 'Saving...' : 'Save details'}
               </button>
               <button
-                className="button button--ghost"
+                className="btn btn--danger"
                 disabled={deleteCourseMutation.isPending}
                 onClick={() => deleteCourseMutation.mutate()}
                 type="button"
               >
-                {deleteCourseMutation.isPending ? 'Removing...' : 'Delete draft'}
+                {deleteCourseMutation.isPending ? 'Deleting...' : 'Delete draft'}
               </button>
             </div>
           </form>
-        </article>
+        </div>
 
-        <aside className="section-card page-stack">
-          <div>
-            <h2>Draft validation</h2>
-            <p>Run the same pre-publish checks the backend uses before the publishing workflow starts in Phase 3.</p>
-          </div>
+        <div className="page-stack">
+          <div className="card">
+            <div className="card__header">
+              <h2 className="card__title">Draft validation</h2>
+              <p className="card__description">Check if the draft is ready for publishing.</p>
+            </div>
 
-          <div className="button-row">
-            <button className="button button--accent" disabled={validateDraftMutation.isPending} onClick={() => validateDraftMutation.mutate()} type="button">
-              {validateDraftMutation.isPending ? 'Validating...' : 'Run validation'}
-            </button>
-          </div>
+            <div className="btn-row" style={{ marginBottom: '0.75rem' }}>
+              <button className="btn btn--primary" disabled={validateDraftMutation.isPending} onClick={() => validateDraftMutation.mutate()} type="button">
+                {validateDraftMutation.isPending ? 'Validating...' : 'Run validation'}
+              </button>
+            </div>
 
-          {validateDraftMutation.isError ? (
-            <PageMessage type="error" text={getErrorMessage(validateDraftMutation.error)} />
-          ) : null}
+            {validateDraftMutation.isError ? (
+              <StatusMsg type="error" text={getErrorMessage(validateDraftMutation.error)} />
+            ) : null}
 
-          {validationResult ? (
-            <div className="validation-shell">
-              <div className={`validation-summary ${validationResult.is_valid ? 'validation-summary--success' : 'validation-summary--warning'}`}>
-                {validationResult.is_valid ? 'Draft is currently valid for publish preparation.' : `${validationResult.issues.length} issue(s) still need work.`}
-              </div>
-              <div className="course-panel-list">
+            {validationResult ? (
+              <div className="validation-result">
+                <div className={`message ${validationResult.is_valid ? 'message--success' : 'message--warning'}`}>
+                  {validationResult.is_valid
+                    ? 'Draft is valid and ready for publishing.'
+                    : `${validationResult.issues.length} issue(s) need attention.`}
+                </div>
                 {validationResult.issues.map((issue) => (
-                  <article className="meta-card validation-issue" key={`${issue.field}-${issue.message}`}>
-                    <strong>{issue.field}</strong>
-                    <span>{issue.message}</span>
-                  </article>
+                  <div className="validation-issue" key={`${issue.field}-${issue.message}`}>
+                    <div className="validation-issue__field">{issue.field}</div>
+                    <div className="validation-issue__message">{issue.message}</div>
+                  </div>
                 ))}
               </div>
-            </div>
-          ) : (
-            <div className="empty-state">No validation run yet for this draft.</div>
-          )}
-        </aside>
-      </section>
-
-      <section className="content-grid content-grid--wide">
-        <article className="section-card page-stack">
-          <div>
-            <h2>Modules and assets</h2>
-            <p>Structure the course, adjust sort order, and manage MinIO-backed assets inline.</p>
+            ) : (
+              <div className="empty">No validation run yet.</div>
+            )}
           </div>
 
-          <form
-            className="form-grid form-grid--inline"
-            onSubmit={(event) => {
-              event.preventDefault()
-              createModuleMutation.mutate()
-            }}
-          >
-            <label className="field field--compact">
-              <span>Module title</span>
-              <input value={moduleTitle} onChange={(event) => setModuleTitle(event.target.value)} />
+          <div className="card">
+            <div className="card__header">
+              <h2 className="card__title">Draft content</h2>
+              <p className="card__description">Persist rich authoring content in MongoDB.</p>
+            </div>
+
+            <div className="form-stack">
+              <label className="form-field">
+                <span className="form-field__label">JSON content</span>
+                <textarea className="json-editor" value={draftContentText} onChange={(e) => setDraftContentText(e.target.value)} />
+              </label>
+
+              {draftContentError ? <StatusMsg type="error" text={draftContentError} /> : null}
+              {saveDraftContentMutation.isError ? <StatusMsg type="error" text={getErrorMessage(saveDraftContentMutation.error)} /> : null}
+              {saveDraftContentMutation.isSuccess ? <StatusMsg type="success" text="Draft content saved." /> : null}
+
+              <div className="btn-row">
+                <button
+                  className="btn btn--primary"
+                  disabled={saveDraftContentMutation.isPending}
+                  onClick={() => {
+                    try {
+                      const parsed = parseDraftContent(draftContentText)
+                      setDraftContentError('')
+                      saveDraftContentMutation.mutate(parsed)
+                    } catch (err) {
+                      setDraftContentError(getErrorMessage(err))
+                    }
+                  }}
+                  type="button"
+                >
+                  {saveDraftContentMutation.isPending ? 'Saving...' : 'Save content'}
+                </button>
+              </div>
+
+              <div className="meta-list">
+                <div className="meta-item">
+                  <div className="meta-item__label">Last saved</div>
+                  <div className="meta-item__value">
+                    {draftContentQuery.data?.updated_at
+                      ? new Date(draftContentQuery.data.updated_at).toLocaleString()
+                      : 'Not saved yet'}
+                  </div>
+                </div>
+                <div className="meta-item">
+                  <div className="meta-item__label">Suggested keys</div>
+                  <div className="meta-item__value mono">overview, learning_objectives, lesson_notes</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Modules */}
+      <div className="card">
+        <div className="card__header">
+          <h2 className="card__title">Modules &amp; assets</h2>
+          <p className="card__description">Structure the course and manage files.</p>
+        </div>
+
+        <form
+          className="form-stack"
+          onSubmit={(e) => {
+            e.preventDefault()
+            createModuleMutation.mutate()
+          }}
+          style={{ marginBottom: '1.25rem' }}
+        >
+          <div className="form-row">
+            <label className="form-field">
+              <span className="form-field__label">Module title</span>
+              <input value={moduleTitle} onChange={(e) => setModuleTitle(e.target.value)} />
             </label>
-            <label className="field field--compact field--wide">
-              <span>Description</span>
-              <input value={moduleDescription} onChange={(event) => setModuleDescription(event.target.value)} />
+            <label className="form-field">
+              <span className="form-field__label">Description</span>
+              <input value={moduleDescription} onChange={(e) => setModuleDescription(e.target.value)} />
             </label>
-            <button className="button" disabled={!moduleTitle || createModuleMutation.isPending} type="submit">
+          </div>
+          <div className="btn-row">
+            <button className="btn" disabled={!moduleTitle || createModuleMutation.isPending} type="submit">
               {createModuleMutation.isPending ? 'Adding...' : 'Add module'}
             </button>
-          </form>
-
-          {createModuleMutation.isError ? (
-            <PageMessage type="error" text={getErrorMessage(createModuleMutation.error)} />
-          ) : null}
-
-          <div className="course-panel-list">
-            {modules.map((module, index) => (
-              <article className="module-card" key={module.id}>
-                <div className="module-card__header">
-                  <div>
-                    <strong>{module.title}</strong>
-                    <div className="table-note">Sort order {module.sort_order}</div>
-                  </div>
-                  <div className="button-row">
-                    <button className="button button--small" disabled={index === 0 || reorderModulesMutation.isPending} onClick={() => moveModule(module.id, -1)} type="button">
-                      Move up
-                    </button>
-                    <button className="button button--small" disabled={index === modules.length - 1 || reorderModulesMutation.isPending} onClick={() => moveModule(module.id, 1)} type="button">
-                      Move down
-                    </button>
-                  </div>
-                </div>
-
-                <div className="form-grid">
-                  <label className="field field--compact">
-                    <span>Title</span>
-                    <input
-                      value={moduleEdits[module.id]?.title ?? module.title}
-                      onChange={(event) =>
-                        setModuleEdits((current) => ({
-                          ...current,
-                          [module.id]: {
-                            ...(current[module.id] ?? {
-                              title: module.title,
-                              description: module.description,
-                              is_required: module.is_required,
-                            }),
-                            title: event.target.value,
-                          },
-                        }))
-                      }
-                    />
-                  </label>
-
-                  <label className="field field--compact">
-                    <span>Description</span>
-                    <textarea
-                      value={moduleEdits[module.id]?.description ?? module.description ?? ''}
-                      onChange={(event) =>
-                        setModuleEdits((current) => ({
-                          ...current,
-                          [module.id]: {
-                            ...(current[module.id] ?? {
-                              title: module.title,
-                              description: module.description,
-                              is_required: module.is_required,
-                            }),
-                            description: event.target.value,
-                          },
-                        }))
-                      }
-                    />
-                  </label>
-
-                  <label className="field-checkbox">
-                    <input
-                      checked={moduleEdits[module.id]?.is_required ?? module.is_required}
-                      onChange={(event) =>
-                        setModuleEdits((current) => ({
-                          ...current,
-                          [module.id]: {
-                            ...(current[module.id] ?? {
-                              title: module.title,
-                              description: module.description,
-                              is_required: module.is_required,
-                            }),
-                            is_required: event.target.checked,
-                          },
-                        }))
-                      }
-                      type="checkbox"
-                    />
-                    Required for completion
-                  </label>
-                </div>
-
-                <div className="button-row">
-                  <button className="button button--small" onClick={() => updateModuleMutation.mutate(module.id)} type="button">
-                    Save module
-                  </button>
-                  <button className="button button--small button--ghost" onClick={() => deleteModuleMutation.mutate(module.id)} type="button">
-                    Delete module
-                  </button>
-                </div>
-
-                <ModuleAssetManager courseId={courseId} module={module} />
-              </article>
-            ))}
           </div>
+        </form>
 
-          {!modulesQuery.isLoading && !modules.length ? (
-            <div className="empty-state">This draft has no modules yet. Add one to start composing the course.</div>
-          ) : null}
-        </article>
+        {createModuleMutation.isError ? <StatusMsg type="error" text={getErrorMessage(createModuleMutation.error)} /> : null}
 
-        <aside className="section-card page-stack">
-          <div>
-            <h2>Draft content</h2>
-            <p>Persist richer authoring content in MongoDB now so the publishing and extraction pipeline has clean raw material in Phase 3.</p>
-          </div>
-
-          <label className="field">
-            <span>JSON content</span>
-            <textarea className="json-editor" value={draftContentText} onChange={(event) => setDraftContentText(event.target.value)} />
-          </label>
-
-          {draftContentError ? <PageMessage type="error" text={draftContentError} /> : null}
-          {saveDraftContentMutation.isError ? (
-            <PageMessage type="error" text={getErrorMessage(saveDraftContentMutation.error)} />
-          ) : null}
-          {saveDraftContentMutation.isSuccess ? <PageMessage type="success" text="Draft content saved to MongoDB." /> : null}
-
-          <div className="button-row">
-            <button
-              className="button button--accent"
-              disabled={saveDraftContentMutation.isPending}
-              onClick={() => {
-                try {
-                  const parsed = parseDraftContent(draftContentText)
-                  setDraftContentError('')
-                  saveDraftContentMutation.mutate(parsed)
-                } catch (error) {
-                  setDraftContentError(getErrorMessage(error))
-                }
-              }}
-              type="button"
-            >
-              {saveDraftContentMutation.isPending ? 'Saving...' : 'Save draft content'}
-            </button>
-          </div>
-
-          <div className="meta-list">
-            <div className="meta-card" style={{ padding: '0.95rem' }}>
-              <strong>Mongo last update</strong>
-              <span>
-                {draftContentQuery.data?.updated_at
-                  ? new Date(draftContentQuery.data.updated_at).toLocaleString()
-                  : 'Not saved yet'}
-              </span>
+        {modules.map((mod, index) => (
+          <div className="module-panel" key={mod.id}>
+            <div className="module-panel__header">
+              <div>
+                <div className="module-panel__title">{mod.title}</div>
+                <div className="module-panel__order">Position {mod.sort_order}</div>
+              </div>
+              <div className="btn-row">
+                <button className="btn btn--sm" disabled={index === 0 || reorderModulesMutation.isPending} onClick={() => moveModule(mod.id, -1)} type="button">
+                  Up
+                </button>
+                <button className="btn btn--sm" disabled={index === modules.length - 1 || reorderModulesMutation.isPending} onClick={() => moveModule(mod.id, 1)} type="button">
+                  Down
+                </button>
+              </div>
             </div>
-            <div className="meta-card" style={{ padding: '0.95rem' }}>
-              <strong>Suggested keys</strong>
-              <span className="mono">overview, learning_objectives, lesson_notes</span>
+
+            <div className="form-stack">
+              <label className="form-field">
+                <span className="form-field__label">Title</span>
+                <input
+                  value={moduleEdits[mod.id]?.title ?? mod.title}
+                  onChange={(e) =>
+                    setModuleEdits((c) => ({
+                      ...c,
+                      [mod.id]: {
+                        ...(c[mod.id] ?? { title: mod.title, description: mod.description, is_required: mod.is_required }),
+                        title: e.target.value,
+                      },
+                    }))
+                  }
+                />
+              </label>
+
+              <label className="form-field">
+                <span className="form-field__label">Description</span>
+                <textarea
+                  value={moduleEdits[mod.id]?.description ?? mod.description ?? ''}
+                  onChange={(e) =>
+                    setModuleEdits((c) => ({
+                      ...c,
+                      [mod.id]: {
+                        ...(c[mod.id] ?? { title: mod.title, description: mod.description, is_required: mod.is_required }),
+                        description: e.target.value,
+                      },
+                    }))
+                  }
+                />
+              </label>
+
+              <label className="form-field--inline form-field">
+                <input
+                  checked={moduleEdits[mod.id]?.is_required ?? mod.is_required}
+                  onChange={(e) =>
+                    setModuleEdits((c) => ({
+                      ...c,
+                      [mod.id]: {
+                        ...(c[mod.id] ?? { title: mod.title, description: mod.description, is_required: mod.is_required }),
+                        is_required: e.target.checked,
+                      },
+                    }))
+                  }
+                  type="checkbox"
+                />
+                <span className="form-field__label">Required for completion</span>
+              </label>
             </div>
+
+            <div className="btn-row" style={{ marginTop: '0.75rem' }}>
+              <button className="btn btn--sm" onClick={() => updateModuleMutation.mutate(mod.id)} type="button">
+                Save module
+              </button>
+              <button className="btn btn--sm btn--ghost" onClick={() => deleteModuleMutation.mutate(mod.id)} type="button">
+                Delete
+              </button>
+            </div>
+
+            <ModuleAssetManager courseId={courseId} module={mod} />
           </div>
-        </aside>
-      </section>
+        ))}
+
+        {!modulesQuery.isLoading && !modules.length ? (
+          <div className="empty">No modules yet. Add one above to start building the course.</div>
+        ) : null}
+      </div>
     </div>
   )
 }

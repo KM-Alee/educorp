@@ -46,64 +46,29 @@ type ForgotPasswordValues = z.infer<typeof forgotPasswordSchema>
 type ResetPasswordValues = z.infer<typeof resetPasswordSchema>
 
 function AuthLayout({
-  eyebrow,
   title,
-  description,
+  subtitle,
   children,
 }: {
-  eyebrow: string
   title: string
-  description: string
+  subtitle: string
   children: React.ReactNode
 }) {
   return (
-    <div className="auth-layout page">
-      <aside className="auth-aside">
-        <div className="auth-brand">
-          <span className="eyebrow">{eyebrow}</span>
-          <h1>Warm, operational auth.</h1>
-          <p>
-            EduCorp&apos;s first web slice focuses on real account work: register,
-            verify, recover, and move between student and admin duties without a
-            marketing-shell detour.
-          </p>
+    <div className="auth-page">
+      <div className="auth-card">
+        <div className="auth-card__header">
+          <div className="auth-card__logo">EduCorp</div>
+          <h1 className="auth-card__title">{title}</h1>
+          <p className="auth-card__subtitle">{subtitle}</p>
         </div>
-
-        <div className="timeline">
-          <div className="timeline-item timeline-item--thinking">
-            <strong>Think</strong>
-            <span>Readable forms, explicit states, no decorative clutter.</span>
-          </div>
-          <div className="timeline-item timeline-item--grep">
-            <strong>Gate</strong>
-            <span>Role-aware routing keeps admin surfaces separate from learner flow.</span>
-          </div>
-          <div className="timeline-item timeline-item--read">
-            <strong>Recover</strong>
-            <span>Verification and password reset are first-class routes, not edge cases.</span>
-          </div>
-          <div className="timeline-item timeline-item--edit">
-            <strong>Review</strong>
-            <span>Phase 1 already includes a thin admin desk for roles and applications.</span>
-          </div>
-        </div>
-      </aside>
-
-      <section className="auth-panel">
-        <div className="panel">
-          <header className="panel-header">
-            <span className="eyebrow">EduCorp Web</span>
-            <h2>{title}</h2>
-            <p className="lede">{description}</p>
-          </header>
-          {children}
-        </div>
-      </section>
+        {children}
+      </div>
     </div>
   )
 }
 
-function InputField({
+function Field({
   label,
   error,
   children,
@@ -113,10 +78,10 @@ function InputField({
   children: React.ReactNode
 }) {
   return (
-    <label className="field">
-      <span>{label}</span>
+    <label className="form-field">
+      <span className="form-field__label">{label}</span>
       {children}
-      {error ? <span className="field-error">{error}</span> : null}
+      {error ? <span className="form-field__error">{error}</span> : null}
     </label>
   )
 }
@@ -144,36 +109,32 @@ export function LoginPage() {
   })
 
   return (
-    <AuthLayout
-      eyebrow="Phase 1"
-      title="Sign in"
-      description="Use the live auth service through Traefik. Admin accounts land on the operational desk; everyone else lands on profile."
-    >
-      <form className="form-grid" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
-        <InputField label="Email" error={form.formState.errors.email?.message}>
+    <AuthLayout title="Sign in" subtitle="Access your EduCorp account.">
+      <form className="form-stack" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
+        <Field label="Email" error={form.formState.errors.email?.message}>
           <input autoComplete="email" {...form.register('email')} />
-        </InputField>
+        </Field>
 
-        <InputField label="Password" error={form.formState.errors.password?.message}>
+        <Field label="Password" error={form.formState.errors.password?.message}>
           <input autoComplete="current-password" type="password" {...form.register('password')} />
-        </InputField>
+        </Field>
 
         {mutation.isError ? (
           <StatusMessage type="error" text={getErrorMessage(mutation.error)} />
         ) : null}
 
-        <div className="button-row">
-          <button className="button button--accent" disabled={mutation.isPending} type="submit">
+        <div className="btn-row">
+          <button className="btn btn--primary" disabled={mutation.isPending} type="submit">
             {mutation.isPending ? 'Signing in...' : 'Sign in'}
           </button>
-          <Link className="button button--ghost" to="/forgot-password">
-            Forgot password
+          <Link className="btn btn--ghost" to="/forgot-password">
+            Forgot password?
           </Link>
         </div>
 
-        <p className="support-copy">Phase 1 admin seed: admin@educorp.dev / AdminPass123!.</p>
+        <p className="auth-hint">Admin seed: admin@educorp.dev / AdminPass123!</p>
 
-        <div className="auth-links">
+        <div className="auth-footer">
           <Link to="/register">Create account</Link>
           <Link to="/verify-email">Verify email</Link>
         </div>
@@ -213,33 +174,29 @@ export function RegisterPage() {
   })
 
   return (
-    <AuthLayout
-      eyebrow="Phase 1"
-      title="Register"
-      description="Student accounts are created inactive and unverified. Use the verification screen with the token from the mock backend flow."
-    >
-      <form className="form-grid" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
-        <div className="split-grid">
-          <InputField label="First name" error={form.formState.errors.firstName?.message}>
+    <AuthLayout title="Create account" subtitle="Register a new student account.">
+      <form className="form-stack" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
+        <div className="form-row">
+          <Field label="First name" error={form.formState.errors.firstName?.message}>
             <input autoComplete="given-name" {...form.register('firstName')} />
-          </InputField>
-          <InputField label="Last name" error={form.formState.errors.lastName?.message}>
+          </Field>
+          <Field label="Last name" error={form.formState.errors.lastName?.message}>
             <input autoComplete="family-name" {...form.register('lastName')} />
-          </InputField>
+          </Field>
         </div>
 
-        <InputField label="Email" error={form.formState.errors.email?.message}>
+        <Field label="Email" error={form.formState.errors.email?.message}>
           <input autoComplete="email" {...form.register('email')} />
-        </InputField>
+        </Field>
 
-        <InputField label="Password" error={form.formState.errors.password?.message}>
+        <Field label="Password" error={form.formState.errors.password?.message}>
           <input autoComplete="new-password" type="password" {...form.register('password')} />
-        </InputField>
+        </Field>
 
         {mutation.isSuccess ? (
           <StatusMessage
             type="success"
-            text={`Account created for ${mutation.data.email}. Verify the address before signing in.`}
+            text={`Account created for ${mutation.data.email}. Verify your email before signing in.`}
           />
         ) : null}
 
@@ -247,20 +204,16 @@ export function RegisterPage() {
           <StatusMessage type="error" text={getErrorMessage(mutation.error)} />
         ) : null}
 
-        <div className="button-row">
-          <button className="button button--accent" disabled={mutation.isPending} type="submit">
+        <div className="btn-row">
+          <button className="btn btn--primary" disabled={mutation.isPending} type="submit">
             {mutation.isPending ? 'Creating...' : 'Create account'}
           </button>
-          <Link className="button button--ghost" to="/verify-email">
+          <Link className="btn btn--ghost" to="/verify-email">
             Verify email
           </Link>
         </div>
 
-        <p className="fine-print">
-          Password validation is enforced by the auth API. Use mixed case and at least one digit.
-        </p>
-
-        <div className="auth-links">
+        <div className="auth-footer">
           <Link to="/login">Already have an account?</Link>
         </div>
       </form>
@@ -279,15 +232,11 @@ export function VerifyEmailPage() {
   })
 
   return (
-    <AuthLayout
-      eyebrow="Phase 1"
-      title="Verify email"
-      description="Paste the token emitted by the mock verification flow. Once verified, the account becomes active and can log in."
-    >
-      <form className="form-grid" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
-        <InputField label="Verification token" error={form.formState.errors.token?.message}>
+    <AuthLayout title="Verify email" subtitle="Paste the token from your verification email.">
+      <form className="form-stack" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
+        <Field label="Verification token" error={form.formState.errors.token?.message}>
           <textarea {...form.register('token')} />
-        </InputField>
+        </Field>
 
         {mutation.isSuccess ? (
           <StatusMessage type="success" text={mutation.data.message} />
@@ -297,12 +246,12 @@ export function VerifyEmailPage() {
           <StatusMessage type="error" text={getErrorMessage(mutation.error)} />
         ) : null}
 
-        <div className="button-row">
-          <button className="button button--accent" disabled={mutation.isPending} type="submit">
+        <div className="btn-row">
+          <button className="btn btn--primary" disabled={mutation.isPending} type="submit">
             {mutation.isPending ? 'Verifying...' : 'Verify'}
           </button>
-          <Link className="button button--ghost" to="/login">
-            Back to login
+          <Link className="btn btn--ghost" to="/login">
+            Back to sign in
           </Link>
         </div>
       </form>
@@ -320,15 +269,11 @@ export function ForgotPasswordPage() {
   })
 
   return (
-    <AuthLayout
-      eyebrow="Recovery"
-      title="Request password reset"
-      description="The backend returns a generic response either way. Use the reset screen once you have the token from the mock flow."
-    >
-      <form className="form-grid" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
-        <InputField label="Email" error={form.formState.errors.email?.message}>
+    <AuthLayout title="Reset password" subtitle="Enter your email to receive a reset token.">
+      <form className="form-stack" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
+        <Field label="Email" error={form.formState.errors.email?.message}>
           <input autoComplete="email" {...form.register('email')} />
-        </InputField>
+        </Field>
 
         {mutation.isSuccess ? (
           <StatusMessage type="success" text={mutation.data.message} />
@@ -338,13 +283,17 @@ export function ForgotPasswordPage() {
           <StatusMessage type="error" text={getErrorMessage(mutation.error)} />
         ) : null}
 
-        <div className="button-row">
-          <button className="button button--accent" disabled={mutation.isPending} type="submit">
-            {mutation.isPending ? 'Submitting...' : 'Send reset request'}
+        <div className="btn-row">
+          <button className="btn btn--primary" disabled={mutation.isPending} type="submit">
+            {mutation.isPending ? 'Sending...' : 'Send reset request'}
           </button>
-          <Link className="button button--ghost" to="/reset-password">
+          <Link className="btn btn--ghost" to="/reset-password">
             I have a token
           </Link>
+        </div>
+
+        <div className="auth-footer">
+          <Link to="/login">Back to sign in</Link>
         </div>
       </form>
     </AuthLayout>
@@ -366,19 +315,15 @@ export function ResetPasswordPage() {
   })
 
   return (
-    <AuthLayout
-      eyebrow="Recovery"
-      title="Reset password"
-      description="Use the reset token from the mock backend flow. Refresh tokens are revoked when the password changes."
-    >
-      <form className="form-grid" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
-        <InputField label="Reset token" error={form.formState.errors.token?.message}>
+    <AuthLayout title="Set new password" subtitle="Enter the reset token and your new password.">
+      <form className="form-stack" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
+        <Field label="Reset token" error={form.formState.errors.token?.message}>
           <textarea {...form.register('token')} />
-        </InputField>
+        </Field>
 
-        <InputField label="New password" error={form.formState.errors.newPassword?.message}>
+        <Field label="New password" error={form.formState.errors.newPassword?.message}>
           <input autoComplete="new-password" type="password" {...form.register('newPassword')} />
-        </InputField>
+        </Field>
 
         {mutation.isSuccess ? (
           <StatusMessage type="success" text={mutation.data.message} />
@@ -388,12 +333,12 @@ export function ResetPasswordPage() {
           <StatusMessage type="error" text={getErrorMessage(mutation.error)} />
         ) : null}
 
-        <div className="button-row">
-          <button className="button button--accent" disabled={mutation.isPending} type="submit">
+        <div className="btn-row">
+          <button className="btn btn--primary" disabled={mutation.isPending} type="submit">
             {mutation.isPending ? 'Resetting...' : 'Reset password'}
           </button>
-          <Link className="button button--ghost" to="/login">
-            Back to login
+          <Link className="btn btn--ghost" to="/login">
+            Back to sign in
           </Link>
         </div>
       </form>

@@ -31,14 +31,14 @@ apps/web/
 ├── public/
 ├── src/
 │   ├── app/            # Router, providers, bootstrapping
-│   ├── components/     # Shared shell and presentational pieces
 │   ├── features/
 │   │   ├── auth/       # Register, login, verify, reset, session logic
+│   │   ├── catalog/    # Phase 3 placeholder pages (catalog browse, search)
 │   │   ├── courses/    # Draft course workspace, modules, assets, validation, draft content
 │   │   ├── profile/    # Current user profile screens
 │   │   └── admin/      # Users and instructor applications
 │   ├── lib/            # HTTP client, env config, query helpers
-│   └── index.css       # Tokens and global CSS
+│   └── index.css       # Tokens, resets, and all component CSS
 ├── package.json
 └── vite.config.ts
 ```
@@ -55,11 +55,13 @@ apps/web/
 
 ### Protected routes
 
-- `/app/courses`
-- `/app/courses/:courseId`
-- `/app/profile`
-- `/app/admin/users`
-- `/app/admin/instructor-applications`
+- `/app/courses` — Course authoring workspace (instructor/admin)
+- `/app/courses/:courseId` — Course editor (instructor/admin)
+- `/app/catalog` — Course catalog browse (Phase 3 placeholder)
+- `/app/search` — Search courses (Phase 3 placeholder)
+- `/app/profile` — Current user profile
+- `/app/admin/users` — Admin user management
+- `/app/admin/instructor-applications` — Admin application review
 
 ## State and Session Model
 
@@ -69,46 +71,33 @@ apps/web/
 - Default instructors and admins into the authoring workspace; students land on profile.
 - On refresh failure, clear session state and return to `/login`.
 
-## Design System Adaptation
+## Design System
 
-The frontend takes the warm editorial tone from `cursor-inspo.md` and adapts it for an operational product UI.
+The frontend uses a professional, restrained SaaS aesthetic: white content surfaces against a warm light background, tight radii, and functional typography. The system is defined entirely in CSS custom properties in `index.css`.
 
-### Keep
+### Design Principles
 
-- Warm cream background family anchored by `#f2f1ed`
-- Dark warm-brown primary text anchored by `#26251e`
-- Expressive headline typography with tighter tracking
-- Soft warm borders, compact radii, and pill filters where useful
-- Sparse, meaningful motion and restrained depth
+- Clean and flat over decorative gradients and glows
+- Task-completion focus over marketing-site composition
+- Dense, readable tables and filter bars over oversized cards
+- Explicit, human-readable error states from the API response envelope
+- Single-column forms with optional side panels for validation and metadata
 
-### Adapt
+### Color Tokens
 
-- Use open, shippable fonts instead of Cursor's proprietary typefaces
-- Apply the visual language to forms, tables, panels, and navigation rather than to hero sections
-- Use editor-inspired mono accents only for technical labels, tokens, or status metadata
-- Keep shadows subtle and mostly reserve heavier elevation for modal or command surfaces
-
-### Avoid
-
-- Large decorative gradients
-- Glow effects and glassmorphism
-- Generic AI motifs, animated sparkles, or chatbot styling on core auth screens
-- Marketing-site composition patterns that get in the way of task completion
-
-## Recommended Tokens
-
-### Color
-
-- `--color-bg: #f2f1ed`
-- `--color-surface: #e6e5e0`
-- `--color-surface-soft: #ebeae5`
-- `--color-text: #26251e`
-- `--color-text-muted: rgba(38, 37, 30, 0.66)`
-- `--color-border: rgba(38, 37, 30, 0.12)`
-- `--color-border-strong: rgba(38, 37, 30, 0.24)`
-- `--color-accent: #f54e00`
-- `--color-danger: #cf2d56`
-- `--color-success: #1f8a65`
+- `--color-bg: #f7f6f3` — page background (warm off-white)
+- `--color-surface: #ffffff` — card / panel surfaces (clean white)
+- `--color-surface-alt: #f0efec` — alternate backgrounds
+- `--color-surface-hover: #eae9e5` — hover state
+- `--color-text: #1a1a1a` — primary text
+- `--color-text-secondary: #5a5a57` — muted text
+- `--color-text-tertiary: #8a8a87` — tertiary / hint text
+- `--color-border: #e2e1dd` — default borders
+- `--color-border-strong: #cccbc6` — stronger borders
+- `--color-accent: #e04e00` — primary action color (burnt orange)
+- `--color-danger: #c4232a` — destructive actions
+- `--color-success: #177a56` — positive feedback
+- `--color-warning: #b45309` — caution
 
 ### Typography
 
@@ -116,22 +105,40 @@ The frontend takes the warm editorial tone from `cursor-inspo.md` and adapts it 
 - Editorial/body serif: `Newsreader`, fallback `Georgia`
 - Mono: `IBM Plex Mono`, fallback `ui-monospace`
 
-### Radius and depth
+### Radius and Depth
 
-- Cards and primary controls: `8px`
-- Compact controls: `4px`
-- Pills: `9999px`
-- Default shadow: minimal or none
-- Elevated shadow: diffuse and warm, used sparingly
+- `--radius-sm: 4px` — buttons, inputs, badges
+- `--radius-md: 6px` — cards, panels
+- `--radius-lg: 8px` — modals, larger containers
+- Shadows are minimal: `--shadow-xs` through `--shadow-lg`, used sparingly
+
+### Component Classes
+
+| Category | Classes |
+|----------|---------|
+| Layout | `.app-shell`, `.app-header`, `.app-main`, `.page-stack`, `.page-columns`, `.page-header` |
+| Buttons | `.btn`, `.btn--primary`, `.btn--ghost`, `.btn--danger`, `.btn--sm`, `.btn-row` |
+| Cards | `.card`, `.card__header`, `.card__title`, `.card__description` |
+| Forms | `.form-stack`, `.form-row`, `.form-field`, `.form-field__label` |
+| Tables | `.table-wrap`, `.table`, `.filter-bar` |
+| Badges | `.badge`, `.badge--accent`, `.badge--success`, `.badge--danger`, `.badge--warning` |
+| Messages | `.message`, `.message--success`, `.message--error`, `.message--warning` |
+| Empty | `.empty` |
+| Auth | `.auth-page`, `.auth-card`, `.auth-hint` |
+| Stats | `.stat-row`, `.stat-item` |
+| Meta | `.meta-list`, `.meta-item` |
+| Courses | `.course-list`, `.course-item`, `.module-panel`, `.asset-row` |
+| Validation | `.validation-result`, `.validation-issue` |
+| Placeholder | `.placeholder-page` (Phase 3+ stub pages) |
 
 ## Screen Rules
 
-- Authentication pages should feel calm and trustworthy, not like a launch page.
-- Form layouts should favor a single clear column with one secondary support panel at most.
-- Admin screens should use dense but readable tables and filter bars with warm borders and low visual noise.
-- Authoring screens should privilege scanability and flow: metadata at the top, module work in the middle, and validation or draft-content side panels on the right.
-- The course workspace should expose real API feedback, not fake completion states.
-- Error states should be explicit and human-readable using the API response envelope's `error.message`.
+- Authentication pages use a single centered card layout (`.auth-page > .auth-card`).
+- Form layouts favor a single clear column. The course editor uses a two-column layout for details + validation.
+- Admin screens use dense, readable tables and flat filter bars.
+- Authoring screens (course editor) show stats at the top, course details and validation side-by-side, and modules below.
+- The course workspace exposes real API feedback, not fake completion states.
+- Error states use the API response envelope's `error.message` via `.message--error`.
 
 ## Testing Expectations
 

@@ -105,7 +105,7 @@ Phase 7: Observability, Hardening & Production Readiness
 
 10. **Create frontend foundation**
   - `apps/web/` with Vite + TypeScript application scaffold
-  - Global design tokens and CSS variables for the warm editorial UI system
+  - Global design tokens and CSS variables for the professional SaaS UI system
   - Shared API client pointed at Traefik (`/api/v1/*`)
   - Router, query client, and session storage primitives
   - Test harness for component and route-level tests
@@ -382,7 +382,8 @@ curl -X PATCH http://localhost/api/v1/courses/<course_id>/draft-content \
 - [ ] Soft-delete works for courses
 - [ ] Draft validation endpoint returns actionable issues
 - [ ] MongoDB stores rich draft content
-- [ ] First-party web app can drive the full authoring workflow
+- [ ] First-party web app can drive the full authoring workflow (workspace + editor)
+- [ ] Frontend uses the updated design system: white surfaces, tight radii, flat nav
 - [ ] All tests pass with >80% coverage on course service
 
 ---
@@ -478,6 +479,7 @@ curl http://localhost:6333/collections/course_chunks
 - [ ] Version transitions: PUBLISHING → READY or PUBLISHING → FAILED
 - [ ] Failed publish doesn't affect previous READY version
 - [ ] Course appears in catalog and search only when READY
+- [ ] Frontend catalog browse and search pages are functional (replacing Phase 3 placeholders)
 - [ ] Temporal UI shows workflow history
 - [ ] Retry failed workflow works
 - [ ] All tests pass

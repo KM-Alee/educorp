@@ -8,6 +8,7 @@ import {
   ResetPasswordPage,
   VerifyEmailPage,
 } from '../features/auth/AuthPages'
+import { CatalogPage, SearchPage } from '../features/catalog/CatalogPages'
 import { CourseEditorPage, CourseWorkspacePage } from '../features/courses/CoursePages'
 import { ProfilePage } from '../features/profile/ProfilePage'
 import {
@@ -55,46 +56,56 @@ function RoleRoute({ roles }: { roles: string[] }) {
 function AppShellHeader({ session }: { session: SessionState }) {
   const navigate = useNavigate()
 
+  const isInstructorOrAdmin =
+    session.user.roles.includes('instructor') || session.user.roles.includes('admin')
+  const isAdmin = session.user.roles.includes('admin')
+
   return (
-    <header className="shell-header">
-      <div className="shell-brand">
-        <strong>
-          <NavLink to={defaultRouteForSession(session)}>EduCorp Web</NavLink>
-        </strong>
-        <span>{session.user.email}</span>
+    <header className="app-header">
+      <div className="app-header__brand">
+        <NavLink to={defaultRouteForSession(session)}>EduCorp</NavLink>
       </div>
 
-      <nav className="shell-nav" aria-label="Primary navigation">
-        {session.user.roles.includes('instructor') || session.user.roles.includes('admin') ? (
-          <NavLink className="nav-link" to="/app/courses">
+      <nav className="app-header__nav" aria-label="Primary navigation">
+        {isInstructorOrAdmin ? (
+          <NavLink className="app-header__link" to="/app/courses">
             Courses
           </NavLink>
         ) : null}
-        <NavLink className="nav-link" to="/app/profile">
+        <NavLink className="app-header__link" to="/app/catalog">
+          Catalog
+        </NavLink>
+        <NavLink className="app-header__link" to="/app/search">
+          Search
+        </NavLink>
+        <NavLink className="app-header__link" to="/app/profile">
           Profile
         </NavLink>
-        {session.user.roles.includes('admin') ? (
+        {isAdmin ? (
           <>
-            <NavLink className="nav-link" to="/app/admin/users">
+            <NavLink className="app-header__link" to="/app/admin/users">
               Users
             </NavLink>
-            <NavLink className="nav-link" to="/app/admin/instructor-applications">
-              Instructor Queue
+            <NavLink className="app-header__link" to="/app/admin/instructor-applications">
+              Applications
             </NavLink>
           </>
         ) : null}
       </nav>
 
-      <div className="page-actions">
-        <div className="role-list">
+      <div className="app-header__spacer" />
+
+      <div className="app-header__meta">
+        <div className="app-header__roles">
           {session.user.roles.map((role) => (
-            <span className="pill" key={role}>
+            <span className="badge" key={role}>
               {role}
             </span>
           ))}
         </div>
+        <span>{session.user.email}</span>
         <button
-          className="button button--ghost"
+          className="btn btn--ghost btn--sm"
           onClick={() => {
             clearSession()
             navigate('/login', { replace: true })
@@ -116,9 +127,9 @@ function AppShell() {
   }
 
   return (
-    <div className="shell page">
+    <div className="app-shell">
       <AppShellHeader session={session} />
-      <main className="shell-main">
+      <main className="app-main">
         <Outlet />
       </main>
     </div>
@@ -146,6 +157,8 @@ export function AppRoutes() {
         <Route path="/app" element={<AppShell />}>
           <Route index element={<NotFoundRedirect />} />
           <Route path="profile" element={<ProfilePage />} />
+          <Route path="catalog" element={<CatalogPage />} />
+          <Route path="search" element={<SearchPage />} />
           <Route element={<RoleRoute roles={['instructor', 'admin']} />}>
             <Route path="courses" element={<CourseWorkspacePage />} />
             <Route path="courses/:courseId" element={<CourseEditorPage />} />
