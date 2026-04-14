@@ -6,7 +6,12 @@ from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from miniopy_async import Minio
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from educorp_common.auth.dependencies import CurrentUser, get_current_user, require_roles
+from educorp_common.auth.dependencies import (
+    CurrentUser,
+    get_current_user,
+    get_optional_user,
+    require_roles,
+)
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -62,6 +67,7 @@ def get_minio() -> Minio:
 __all__ = [
     "CurrentUser",
     "get_current_user",
+    "get_optional_user",
     "get_minio",
     "get_mongo_db",
     "get_session",

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from app.api.v1.search import router as search_router
+
 router = APIRouter()
 
 
@@ -16,3 +18,6 @@ async def health_ready() -> dict[str, str]:
     """Readiness probe — service is ready to accept traffic."""
     # TODO: Add dependency checks in later phases
     return {"status": "ready"}
+
+
+router.include_router(search_router)

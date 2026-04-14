@@ -84,10 +84,14 @@ class AssetService:
         *,
         course_id: UUID,
         module_id: UUID,
+        caller_id: UUID,
+        caller_roles: list[str],
     ) -> list[Asset]:
         course = await self._courses.get_by_id(course_id)
         if course is None:
             raise NotFoundError("Course not found")
+        if not self._can_view(course.visibility, course.instructor_id, caller_id, caller_roles):
+            raise ForbiddenError("You do not have access to this course")
         module = await self._modules.get_by_id(module_id)
         if module is None or module.course_id != course_id:
             raise NotFoundError("Module not found")
@@ -143,3 +147,16 @@ class AssetService:
         if "admin" not in caller_roles and course.instructor_id != caller_id:
             raise ForbiddenError("You do not own this course")
         return course
+
+    @staticmethod
+    def _can_view(
+        visibility: str,
+        instructor_id: UUID,
+        caller_id: UUID,
+        caller_roles: list[str],
+    ) -> bool:
+        if visibility == "PUBLISHED":
+            return True
+        if "admin" in caller_roles:
+            return True
+        return instructor_id == caller_id

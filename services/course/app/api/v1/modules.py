@@ -71,7 +71,11 @@ async def list_modules(
     session: AsyncSession = Depends(get_session),
 ) -> SuccessResponse[list[ModuleDetail]]:
     svc = ModuleService(session)
-    modules = await svc.list_for_course(course_id)
+    modules = await svc.list_for_course(
+        course_id,
+        caller_id=UUID(current_user["id"]),
+        caller_roles=current_user["roles"],
+    )
     return SuccessResponse(data=[_to_detail(m) for m in modules], meta=_meta())
 
 

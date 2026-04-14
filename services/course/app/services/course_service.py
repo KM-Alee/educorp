@@ -10,7 +10,7 @@ from app.repositories.course_repository import CourseRepository
 from app.repositories.module_repository import ModuleRepository
 from app.schemas.course import CourseCreate, CourseOut, CourseUpdate, CourseListItem, ModuleOut
 from app.services.slug_service import SlugService
-from educorp_common.errors import ForbiddenError, NotFoundError
+from educorp_common.errors import ConflictError, ForbiddenError, NotFoundError
 
 
 def _parse_duration(value: str | None) -> timedelta | None:
@@ -78,8 +78,17 @@ class CourseService:
         course = await self._repo.create(course)
         return self._to_out(course)
 
-    async def get_course(self, course_id: UUID) -> CourseOut:
+    async def get_course(
+        self,
+        course_id: UUID,
+        *,
+        caller_id: UUID | None = None,
+        caller_roles: list[str] | None = None,
+    ) -> CourseOut:
         course = await self._get_or_404(course_id)
+        roles = caller_roles or []
+        if not self._can_view(course, caller_id, roles):
+            raise ForbiddenError("You do not have access to this course")
         modules = await self._module_repo.list_for_course(course_id)
         from app.repositories.asset_repository import AssetRepository
 
@@ -134,6 +143,19 @@ class CourseService:
         self._enforce_owner_or_admin(course, caller_id, caller_roles)
         await self._repo.soft_delete(course)
 
+    async def get_course_for_publish(
+        self,
+        *,
+        course_id: UUID,
+        caller_id: UUID,
+        caller_roles: list[str],
+    ) -> Course:
+        course = await self._get_or_404(course_id)
+        self._enforce_owner_or_admin(course, caller_id, caller_roles)
+        if course.visibility != "DRAFT":
+            raise ConflictError("Only draft courses can be published")
+        return course
+
     async def list_courses(
         self,
         *,
@@ -175,6 +197,16 @@ class CourseService:
             return
         if course.instructor_id != caller_id:
             raise ForbiddenError("You do not own this course")
+
+    @staticmethod
+    def _can_view(course: Course, caller_id: UUID | None, caller_roles: list[str]) -> bool:
+        if course.visibility == "PUBLISHED":
+            return True
+        if caller_id is None:
+            return False
+        if "admin" in caller_roles:
+            return True
+        return course.instructor_id == caller_id
 
     @staticmethod
     def _to_out(course: Course) -> CourseOut:

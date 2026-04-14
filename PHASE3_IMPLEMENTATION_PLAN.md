@@ -106,6 +106,12 @@ Mitigation: only surface READY versions and finalize version activation in one e
 - Workflow observability can become opaque if status only lives in Temporal.
 Mitigation: persist step rows and expose them directly in the API and web UI.
 
+- Users may lose visibility into in-flight publishes after refreshing the web app.
+Mitigation: store the last publish version ID per course and poll status until completion.
+
+- Retry/cancel could leave steps in mixed states.
+Mitigation: reset steps on retry and mark pending/running steps as skipped on cancel.
+
 ## Exit Criteria
 
 - An instructor can publish a validated draft from the web app.
@@ -113,3 +119,5 @@ Mitigation: persist step rows and expose them directly in the API and web UI.
 - READY courses appear in catalog browse and keyword search.
 - Semantic chunks are indexed in Qdrant with course/module/asset metadata.
 - Failed publishes are inspectable and retryable without manual database intervention.
+- Web UI shows publish controls, per-step status, retry, and cancel actions.
+- Catalog and search routes surface READY courses only.

@@ -200,8 +200,8 @@ CREATE TABLE publishing.course_versions (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     course_id       UUID NOT NULL,  -- FK to course.courses
     version_number  INTEGER NOT NULL,
-    status          VARCHAR(20) NOT NULL DEFAULT 'PUBLISHING'
-                    CHECK (status IN ('PUBLISHING', 'READY', 'FAILED', 'SUPERSEDED')),
+  status          VARCHAR(20) NOT NULL DEFAULT 'PUBLISHING'
+          CHECK (status IN ('DRAFT', 'PUBLISHING', 'READY', 'FAILED', 'CANCELLED')),
     initiated_by    UUID NOT NULL,   -- User who triggered publish
     workflow_id     VARCHAR(255),    -- Temporal workflow ID
     run_id          VARCHAR(255),    -- Temporal run ID
@@ -210,7 +210,8 @@ CREATE TABLE publishing.course_versions (
     total_assets    INTEGER DEFAULT 0,
     processing_started_at TIMESTAMPTZ,
     processing_completed_at TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     ready_at        TIMESTAMPTZ       -- Set when status becomes READY
 );
 
@@ -229,14 +230,15 @@ CREATE UNIQUE INDEX idx_one_publishing_per_course
 CREATE TABLE publishing.publishing_steps (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     version_id      UUID NOT NULL REFERENCES publishing.course_versions(id) ON DELETE CASCADE,
-    step_name       VARCHAR(50) NOT NULL,  -- 'extract', 'chunk', 'embed', 'index', 'finalize'
+  step_name       VARCHAR(50) NOT NULL,  -- 'validate_assets', 'extract_text', ...
     status          VARCHAR(20) NOT NULL DEFAULT 'PENDING'
                     CHECK (status IN ('PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'SKIPPED')),
     started_at      TIMESTAMPTZ,
     completed_at    TIMESTAMPTZ,
     error_message   TEXT,
     metadata        JSONB DEFAULT '{}',  -- Step-specific diagnostics
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_pub_steps_version ON publishing.publishing_steps(version_id);
@@ -255,7 +257,8 @@ CREATE TABLE publishing.chunks (
     char_end        INTEGER,
     token_count     INTEGER,
     text_preview    VARCHAR(500),  -- First 500 chars for debugging/admin
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_chunks_version ON publishing.chunks(version_id);

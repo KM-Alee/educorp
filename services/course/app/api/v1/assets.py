@@ -100,7 +100,12 @@ async def list_assets(
 ) -> SuccessResponse[list[AssetOut]]:
     storage = StorageService(minio_client)
     svc = AssetService(session, storage)
-    assets = await svc.list_for_module(course_id=course_id, module_id=module_id)
+    assets = await svc.list_for_module(
+        course_id=course_id,
+        module_id=module_id,
+        caller_id=UUID(current_user["id"]),
+        caller_roles=current_user["roles"],
+    )
     return SuccessResponse(data=[_to_out(a) for a in assets], meta=_meta())
 
 

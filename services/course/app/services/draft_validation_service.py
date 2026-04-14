@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from app.repositories.asset_repository import AssetRepository
 from app.repositories.course_repository import CourseRepository
 from app.repositories.module_repository import ModuleRepository
 from app.schemas.common import DraftValidationIssue
@@ -16,6 +17,7 @@ class DraftValidationService:
     def __init__(self, session: AsyncSession) -> None:
         self._courses = CourseRepository(session)
         self._modules = ModuleRepository(session)
+        self._assets = AssetRepository(session)
 
     async def validate(
         self,
@@ -44,6 +46,10 @@ class DraftValidationService:
         module_count = await self._modules.count_for_course(course_id)
         if module_count == 0:
             issues.append(DraftValidationIssue(field="modules", message="At least one module is required"))
+
+        asset_count = await self._assets.count_for_course(course_id)
+        if asset_count == 0:
+            issues.append(DraftValidationIssue(field="assets", message="At least one asset is required"))
 
         modules = await self._modules.list_for_course(course_id)
         for m in modules:

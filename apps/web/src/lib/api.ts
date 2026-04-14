@@ -10,6 +10,8 @@ import {
 
 const AUTH_BASE = '/api/v1/auth'
 const COURSE_BASE = '/api/v1/courses'
+const PUBLISHING_BASE = '/api/v1/publishing'
+const SEARCH_BASE = '/api/v1/search'
 
 export interface RegisterInput {
   email: string
@@ -203,6 +205,53 @@ export interface DraftContentDocument {
   course_id: string
   content: Record<string, unknown>
   updated_at: string | null
+}
+
+export interface PublishVersionResponse {
+  version_id: string
+  version_number: number
+  status: string
+  workflow_id: string | null
+  message: string
+}
+
+export interface PublishingStep {
+  id: string
+  step_name: string
+  status: string
+  started_at: string | null
+  completed_at: string | null
+  error_message: string | null
+  metadata: Record<string, unknown>
+}
+
+export interface PublishingVersion {
+  id: string
+  course_id: string
+  version_number: number
+  status: string
+  initiated_by: string
+  workflow_id: string | null
+  run_id: string | null
+  error_details: Record<string, unknown> | null
+  total_chunks: number
+  total_assets: number
+  processing_started_at: string | null
+  processing_completed_at: string | null
+  created_at: string
+  ready_at: string | null
+  steps: PublishingStep[]
+}
+
+export interface CourseSearchItem {
+  course_id: string
+  title: string
+  short_description: string | null
+  instructor_name?: string | null
+  category: string | null
+  difficulty: string | null
+  relevance_score: number
+  matched_in: string[]
 }
 
 async function parsePayload<T>(response: Response): Promise<T | null> {
@@ -697,12 +746,68 @@ export async function updateDraftContent(
   return response.data
 }
 
+export async function publishCourse(courseId: string): Promise<PublishVersionResponse> {
+  const response = await requestEnvelope<PublishVersionResponse>(
+    `${COURSE_BASE}/${courseId}/publish`,
+    { method: 'POST' },
+    { auth: true },
+  )
+  return response.data
+}
+
+export async function getPublishingVersion(versionId: string): Promise<PublishingVersion> {
+  const response = await requestEnvelope<PublishingVersion>(
+    `${PUBLISHING_BASE}/versions/${versionId}`,
+    {},
+    { auth: true },
+  )
+  return response.data
+}
+
+export async function retryPublishingVersion(versionId: string): Promise<PublishVersionResponse> {
+  const response = await requestEnvelope<PublishVersionResponse>(
+    `${PUBLISHING_BASE}/versions/${versionId}/retry`,
+    { method: 'POST' },
+    { auth: true },
+  )
+  return response.data
+}
+
+export async function cancelPublishingVersion(versionId: string): Promise<PublishVersionResponse> {
+  const response = await requestEnvelope<PublishVersionResponse>(
+    `${PUBLISHING_BASE}/versions/${versionId}/cancel`,
+    { method: 'POST' },
+    { auth: true },
+  )
+  return response.data
+}
+
+export async function searchCourses(filters: {
+  q?: string
+  category?: string
+  difficulty?: string
+  tags?: string
+  page?: number
+  page_size?: number
+}): Promise<PaginatedResponse<CourseSearchItem>> {
+  const params = new URLSearchParams()
+  if (filters.q) params.set('q', filters.q)
+  if (filters.category) params.set('category', filters.category)
+  if (filters.difficulty) params.set('difficulty', filters.difficulty)
+  if (filters.tags) params.set('tags', filters.tags)
+  params.set('page', String(filters.page ?? 1))
+  params.set('page_size', String(filters.page_size ?? 20))
+
+  return requestPaginated<CourseSearchItem>(`${SEARCH_BASE}/courses?${params.toString()}`)
+}
+
 export async function listInstructorApplications(
-  status = 'pending',
+  status = 'PENDING',
 ): Promise<PaginatedResponse<InstructorApplication>> {
   const params = new URLSearchParams({ page: '1', page_size: '25' })
-  if (status) {
-    params.set('status', status)
+  const normalized = status ? status.toUpperCase() : ''
+  if (normalized) {
+    params.set('status', normalized)
   }
   return requestPaginated<InstructorApplication>(
     `${AUTH_BASE}/admin/instructor-applications?${params.toString()}`,

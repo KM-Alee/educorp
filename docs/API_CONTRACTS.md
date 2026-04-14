@@ -584,17 +584,12 @@ Delete asset. **Auth: course owner. Only in DRAFT state.**
 
 ---
 
-## 6. Publishing Service — `/api/v1/publishing`
+## 6. Publishing APIs
 
 ### POST `/courses/{course_id}/publish`
 Trigger course publishing. **Auth: course owner or admin.**
 
-**Request:**
-```json
-{
-  "idempotency_key": "pub-2026-04-11-abc123"
-}
-```
+**Request:** empty body.
 
 **Response (202):**
 ```json
@@ -603,7 +598,7 @@ Trigger course publishing. **Auth: course owner or admin.**
     "version_id": "uuid",
     "version_number": 3,
     "status": "PUBLISHING",
-    "workflow_id": "temporal-workflow-id",
+    "workflow_id": "publish-<version_id>",
     "message": "Publishing started. Monitor status via GET /publishing/versions/{version_id}"
   }
 }
@@ -622,16 +617,23 @@ Get publishing status. **Auth: course owner or admin.**
     "course_id": "uuid",
     "version_number": 3,
     "status": "PUBLISHING",
+    "initiated_by": "uuid",
+    "workflow_id": "publish-<version_id>",
+    "run_id": null,
+    "total_chunks": 0,
+    "total_assets": 0,
+    "processing_started_at": "ISO8601",
+    "processing_completed_at": null,
+    "created_at": "ISO8601",
+    "ready_at": null,
     "steps": [
-      {"step": "validate", "status": "COMPLETED", "duration_ms": 200},
-      {"step": "extract", "status": "COMPLETED", "duration_ms": 15000},
-      {"step": "chunk", "status": "RUNNING", "started_at": "ISO8601"},
-      {"step": "embed", "status": "PENDING"},
-      {"step": "index", "status": "PENDING"},
-      {"step": "finalize", "status": "PENDING"}
-    ],
-    "total_assets": 12,
-    "processing_started_at": "ISO8601"
+      {"step_name": "validate_assets", "status": "PENDING"},
+      {"step_name": "extract_text", "status": "PENDING"},
+      {"step_name": "chunk_content", "status": "PENDING"},
+      {"step_name": "generate_embeddings", "status": "PENDING"},
+      {"step_name": "index_qdrant", "status": "PENDING"},
+      {"step_name": "finalize_version", "status": "PENDING"}
+    ]
   }
 }
 ```

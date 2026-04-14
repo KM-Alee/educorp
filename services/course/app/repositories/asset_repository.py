@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import Asset
+from app.models.module import Module
 
 
 class AssetRepository:
@@ -53,5 +54,14 @@ class AssetRepository:
     async def count_for_module(self, module_id: UUID) -> int:
         result = await self._session.execute(
             select(func.count()).select_from(Asset).where(Asset.module_id == module_id)
+        )
+        return int(result.scalar_one())
+
+    async def count_for_course(self, course_id: UUID) -> int:
+        result = await self._session.execute(
+            select(func.count())
+            .select_from(Asset)
+            .join(Module, Asset.module_id == Module.id)
+            .where(Module.course_id == course_id)
         )
         return int(result.scalar_one())

@@ -41,10 +41,18 @@ class ModuleService:
         )
         return await self._modules.create(module)
 
-    async def list_for_course(self, course_id: UUID) -> list[Module]:
+    async def list_for_course(
+        self,
+        course_id: UUID,
+        *,
+        caller_id: UUID,
+        caller_roles: list[str],
+    ) -> list[Module]:
         course = await self._courses.get_by_id(course_id)
         if course is None:
             raise NotFoundError("Course not found")
+        if not self._can_view(course.visibility, course.instructor_id, caller_id, caller_roles):
+            raise ForbiddenError("You do not have access to this course")
         return await self._modules.list_for_course(course_id)
 
     async def update(
@@ -116,3 +124,16 @@ class ModuleService:
         if "admin" not in caller_roles and course.instructor_id != caller_id:
             raise ForbiddenError("You do not own this course")
         return course
+
+    @staticmethod
+    def _can_view(
+        visibility: str,
+        instructor_id: UUID,
+        caller_id: UUID,
+        caller_roles: list[str],
+    ) -> bool:
+        if visibility == "PUBLISHED":
+            return True
+        if "admin" in caller_roles:
+            return True
+        return instructor_id == caller_id

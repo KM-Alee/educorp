@@ -24,5 +24,8 @@ class Settings(BaseAppSettings):
     max_asset_size_bytes: int = 50 * 1024 * 1024  # 50 MB
     presigned_url_ttl_seconds: int = 3600
 
+    # Publishing service
+    publishing_service_url: str = "http://publishing-service:8000/api/v1/publishing"
+
 
 settings = Settings()

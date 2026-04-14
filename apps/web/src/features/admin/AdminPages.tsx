@@ -170,7 +170,7 @@ export function AdminUsersPage() {
 
 export function AdminApplicationsPage() {
   const queryClient = useQueryClient()
-  const [status, setStatus] = useState('pending')
+  const [status, setStatus] = useState('PENDING')
 
   const applicationsQuery = useQuery({
     queryKey: ['instructor-applications', status],
@@ -197,7 +197,7 @@ export function AdminApplicationsPage() {
           <label className="form-field">
             <span className="form-field__label">Status</span>
             <select value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="pending">Pending</option>
+              <option value="PENDING">Pending</option>
               <option value="APPROVED">Approved</option>
               <option value="REJECTED">Rejected</option>
             </select>

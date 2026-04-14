@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.course import Course
@@ -67,7 +67,15 @@ class CourseRepository:
         query = select(Course).where(Course.deleted_at.is_(None))
 
         if not include_drafts:
-            query = query.where(Course.visibility == "PUBLISHED")
+            ready_versions = (
+                select(text("id"))
+                .select_from(text("publishing.course_versions"))
+                .where(text("status = 'READY'"))
+            )
+            query = query.where(
+                Course.visibility == "PUBLISHED",
+                Course.current_version_id.in_(ready_versions),
+            )
 
         if visibility:
             query = query.where(Course.visibility == visibility)

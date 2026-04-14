@@ -8,6 +8,7 @@ import structlog
 from miniopy_async import Minio
 
 from app.config import settings
+from educorp_common.errors import ValidationError
 
 logger = structlog.get_logger()
 
@@ -65,6 +66,24 @@ class StorageService:
     def __init__(self, client: Minio) -> None:
         self._client = client
         self._bucket = settings.minio_bucket
+
+    @staticmethod
+    def validate_file(file_name: str, content_type: str, data: bytes) -> tuple[str, str]:
+        header = data[:8]
+        asset_type = validate_file_type(file_name, content_type, header)
+        if asset_type is None:
+            raise ValidationError("Unsupported file type")
+        return asset_type, content_type
+
+    @staticmethod
+    def compute_checksum(data: bytes) -> str:
+        return compute_checksum(data)
+
+    @staticmethod
+    def storage_path(
+        course_id: UUID, module_id: UUID, asset_id: UUID, file_name: str
+    ) -> str:
+        return build_storage_path(course_id, module_id, asset_id, file_name)
 
     async def upload(self, storage_path: str, data: bytes, content_type: str) -> None:
         await self._client.put_object(

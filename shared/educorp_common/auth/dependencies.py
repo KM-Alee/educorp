@@ -23,15 +23,12 @@ class CurrentUser(TypedDict):
 
 settings = BaseAppSettings()
 security = HTTPBearer()
+optional_security = HTTPBearer(auto_error=False)
 
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Security(security),
-) -> CurrentUser:
-    """Extract and validate the current user from the JWT token."""
-    token = credentials.credentials
+def _decode_token(token: str) -> dict[str, Any]:
     try:
-        payload = decode_access_token(
+        return decode_access_token(
             token,
             secret_key=settings.jwt_secret_key,
             algorithm=settings.jwt_algorithm,
@@ -43,6 +40,8 @@ async def get_current_user(
     except JWTError as exc:
         raise UnauthorizedError("Invalid token") from exc
 
+
+def _payload_to_user(payload: dict[str, Any]) -> CurrentUser:
     return CurrentUser(
         id=str(payload.get("sub", "")),
         email=str(payload.get("email", "")),
@@ -50,6 +49,24 @@ async def get_current_user(
         is_active=bool(payload.get("is_active", True)),
         is_verified=bool(payload.get("is_verified", True)),
     )
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Security(security),
+) -> CurrentUser:
+    """Extract and validate the current user from the JWT token."""
+    payload = _decode_token(credentials.credentials)
+    return _payload_to_user(payload)
+
+
+async def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Security(optional_security),
+) -> CurrentUser | None:
+    """Return the current user if credentials are provided; otherwise None."""
+    if credentials is None:
+        return None
+    payload = _decode_token(credentials.credentials)
+    return _payload_to_user(payload)
 
 
 def require_roles(*roles: str) -> Any:

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import {
+  cancelPublishingVersion,
   createCourse,
   createModule,
   deleteAsset,
@@ -12,10 +13,13 @@ import {
   getAssetDownload,
   getCourse,
   getDraftContent,
+  getPublishingVersion,
   listAssets,
   listCourses,
   listModules,
+  publishCourse,
   reorderModules,
+  retryPublishingVersion,
   updateCourse,
   updateDraftContent,
   updateModule,
@@ -26,8 +30,10 @@ import {
   type CourseListItem,
   type DraftContentDocument,
   type ModuleDetail,
+  type PublishingVersion,
 } from '../../lib/api'
 import { getErrorMessage } from '../../lib/types'
+import { useSessionState } from '../../lib/session'
 
 const defaultCourseInput: CourseCreateInput = {
   title: '',
@@ -62,6 +68,32 @@ function parseDraftContent(raw: string): Record<string, unknown> {
     throw new Error('Draft content must be a JSON object.')
   }
   return parsed as Record<string, unknown>
+}
+
+const PUBLISHING_STORAGE_KEY = 'educorp.phase3.publishing'
+
+function getStoredVersionId(courseId: string): string | null {
+  if (!courseId) return null
+  try {
+    const raw = window.localStorage.getItem(PUBLISHING_STORAGE_KEY)
+    if (!raw) return null
+    const data = JSON.parse(raw) as Record<string, string>
+    return data[courseId] ?? null
+  } catch {
+    return null
+  }
+}
+
+function setStoredVersionId(courseId: string, versionId: string) {
+  if (!courseId) return
+  try {
+    const raw = window.localStorage.getItem(PUBLISHING_STORAGE_KEY)
+    const data = raw ? (JSON.parse(raw) as Record<string, string>) : {}
+    data[courseId] = versionId
+    window.localStorage.setItem(PUBLISHING_STORAGE_KEY, JSON.stringify(data))
+  } catch {
+    // Ignore storage errors
+  }
 }
 
 function StatusMsg({ type, text }: { type: 'success' | 'error'; text: string }) {
@@ -366,6 +398,7 @@ function ModuleAssetManager({
 export function CourseEditorPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const session = useSessionState()
   const { courseId = '' } = useParams()
   const [courseForm, setCourseForm] = useState<CourseCreateInput>(defaultCourseInput)
   const [courseTagsInput, setCourseTagsInput] = useState('')
@@ -374,6 +407,7 @@ export function CourseEditorPage() {
   const [moduleTitle, setModuleTitle] = useState('')
   const [moduleDescription, setModuleDescription] = useState('')
   const [moduleEdits, setModuleEdits] = useState<Record<string, Pick<ModuleDetail, 'title' | 'description' | 'is_required'>>>({})
+  const [publishingVersionId, setPublishingVersionId] = useState<string | null>(() => getStoredVersionId(courseId))
 
   const courseQuery = useQuery({
     queryKey: ['course', courseId],
@@ -404,6 +438,11 @@ export function CourseEditorPage() {
     })
     setCourseTagsInput((courseQuery.data.tags ?? []).join(', '))
   }, [courseQuery.data])
+
+  useEffect(() => {
+    if (!courseId) return
+    setPublishingVersionId(getStoredVersionId(courseId))
+  }, [courseId])
 
   useEffect(() => {
     if (!draftContentQuery.data) return
@@ -481,12 +520,44 @@ export function CourseEditorPage() {
     mutationFn: () => validateCourseDraft(courseId),
   })
 
+  const publishMutation = useMutation({
+    mutationFn: () => publishCourse(courseId),
+    onSuccess: (result) => {
+      setPublishingVersionId(result.version_id)
+      setStoredVersionId(courseId, result.version_id)
+      queryClient.invalidateQueries({ queryKey: ['publishing', result.version_id] })
+    },
+  })
+
+  const retryMutation = useMutation({
+    mutationFn: (versionId: string) => retryPublishingVersion(versionId),
+    onSuccess: (result) => {
+      setPublishingVersionId(result.version_id)
+      setStoredVersionId(courseId, result.version_id)
+      queryClient.invalidateQueries({ queryKey: ['publishing', result.version_id] })
+    },
+  })
+
+  const cancelMutation = useMutation({
+    mutationFn: (versionId: string) => cancelPublishingVersion(versionId),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['publishing', result.version_id] })
+    },
+  })
+
   const saveDraftContentMutation = useMutation({
     mutationFn: (content: Record<string, unknown>) => updateDraftContent(courseId, content),
     onSuccess: async () => {
       setDraftContentError('')
       await queryClient.invalidateQueries({ queryKey: ['draft-content', courseId] })
     },
+  })
+
+  const publishingQuery = useQuery<PublishingVersion>({
+    queryKey: ['publishing', publishingVersionId],
+    queryFn: () => getPublishingVersion(publishingVersionId ?? ''),
+    enabled: Boolean(publishingVersionId),
+    refetchInterval: (data) => (data?.status === 'PUBLISHING' ? 5000 : false),
   })
 
   const modules = modulesQuery.data ?? []
@@ -512,6 +583,8 @@ export function CourseEditorPage() {
   }
 
   const validationResult = validateDraftMutation.data
+  const publishingData = publishingQuery.data
+  const canCancel = session?.user.roles.includes('admin')
 
   return (
     <div className="page-stack">
@@ -669,6 +742,90 @@ export function CourseEditorPage() {
               </div>
             ) : (
               <div className="empty">No validation run yet.</div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="card__header">
+              <h2 className="card__title">Publishing</h2>
+              <p className="card__description">Launch the publishing pipeline and track progress.</p>
+            </div>
+
+            <div className="btn-row" style={{ marginBottom: '0.75rem' }}>
+              <button
+                className="btn btn--primary"
+                disabled={publishMutation.isPending}
+                onClick={() => publishMutation.mutate()}
+                type="button"
+              >
+                {publishMutation.isPending ? 'Publishing...' : 'Publish draft'}
+              </button>
+              {publishingData?.status === 'FAILED' ? (
+                <button
+                  className="btn btn--ghost"
+                  disabled={retryMutation.isPending}
+                  onClick={() => retryMutation.mutate(publishingData.id)}
+                  type="button"
+                >
+                  {retryMutation.isPending ? 'Retrying...' : 'Retry'}
+                </button>
+              ) : null}
+              {publishingData?.status === 'PUBLISHING' && canCancel ? (
+                <button
+                  className="btn btn--danger"
+                  disabled={cancelMutation.isPending}
+                  onClick={() => cancelMutation.mutate(publishingData.id)}
+                  type="button"
+                >
+                  {cancelMutation.isPending ? 'Cancelling...' : 'Cancel'}
+                </button>
+              ) : null}
+            </div>
+
+            {publishMutation.isError ? (
+              <StatusMsg type="error" text={getErrorMessage(publishMutation.error)} />
+            ) : null}
+            {retryMutation.isError ? (
+              <StatusMsg type="error" text={getErrorMessage(retryMutation.error)} />
+            ) : null}
+            {cancelMutation.isError ? (
+              <StatusMsg type="error" text={getErrorMessage(cancelMutation.error)} />
+            ) : null}
+
+            {publishingQuery.isError ? (
+              <StatusMsg type="error" text={getErrorMessage(publishingQuery.error)} />
+            ) : null}
+
+            {publishingData ? (
+              <div className="validation-result">
+                <div className={`message ${publishingData.status === 'READY' ? 'message--success' : publishingData.status === 'FAILED' ? 'message--error' : 'message--warning'}`}>
+                  Status: {publishingData.status}
+                </div>
+                <div className="meta-list">
+                  <div className="meta-item">
+                    <div className="meta-item__label">Version</div>
+                    <div className="meta-item__value">{publishingData.version_number}</div>
+                  </div>
+                  <div className="meta-item">
+                    <div className="meta-item__label">Assets</div>
+                    <div className="meta-item__value">{publishingData.total_assets}</div>
+                  </div>
+                  <div className="meta-item">
+                    <div className="meta-item__label">Chunks</div>
+                    <div className="meta-item__value">{publishingData.total_chunks}</div>
+                  </div>
+                </div>
+                <div className="validation-list">
+                  {publishingData.steps.map((step) => (
+                    <div className="validation-issue" key={step.id}>
+                      <div className="validation-issue__field">{step.step_name}</div>
+                      <div className="validation-issue__message">{step.status}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="empty">No publishing run yet.</div>
             )}
           </div>
 
