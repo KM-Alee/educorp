@@ -23,7 +23,7 @@ class QdrantService:
         self._client.create_collection(
             collection_name=self._collection,
             vectors_config=qmodels.VectorParams(
-                size=settings.embedding_dimension,
+                size=settings.openai_embedding_dimension,
                 distance=qmodels.Distance.COSINE,
             ),
         )

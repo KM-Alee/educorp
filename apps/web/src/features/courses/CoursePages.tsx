@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import {
+  approvePublishingVersion,
   cancelPublishingVersion,
   createCourse,
   createModule,
@@ -18,6 +19,7 @@ import {
   listCourses,
   listModules,
   publishCourse,
+  rejectPublishingVersion,
   reorderModules,
   retryPublishingVersion,
   updateCourse,
@@ -545,6 +547,20 @@ export function CourseEditorPage() {
     },
   })
 
+  const approveMutation = useMutation({
+    mutationFn: (versionId: string) => approvePublishingVersion(versionId),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['publishing', result.version_id] })
+    },
+  })
+
+  const rejectMutation = useMutation({
+    mutationFn: (versionId: string) => rejectPublishingVersion(versionId),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['publishing', result.version_id] })
+    },
+  })
+
   const saveDraftContentMutation = useMutation({
     mutationFn: (content: Record<string, unknown>) => updateDraftContent(courseId, content),
     onSuccess: async () => {
@@ -557,7 +573,12 @@ export function CourseEditorPage() {
     queryKey: ['publishing', publishingVersionId],
     queryFn: () => getPublishingVersion(publishingVersionId ?? ''),
     enabled: Boolean(publishingVersionId),
-    refetchInterval: (data) => (data?.status === 'PUBLISHING' ? 5000 : false),
+    refetchInterval: (data) => {
+      if (!data) return false
+      if (data.status === 'PREPARING' || data.status === 'PUBLISHING') return 5000
+      if (data.status === 'REVIEW_REQUIRED' && data.approval_state === 'APPROVED') return 5000
+      return false
+    },
   })
 
   const modules = modulesQuery.data ?? []
@@ -585,6 +606,8 @@ export function CourseEditorPage() {
   const validationResult = validateDraftMutation.data
   const publishingData = publishingQuery.data
   const canCancel = session?.user.roles.includes('admin')
+  const canReview = Boolean(session?.user.roles.some((role) => role === 'admin' || role === 'instructor'))
+  const preflightSummary = publishingData?.preflight_summary_json
 
   return (
     <div className="page-stack">
@@ -770,7 +793,27 @@ export function CourseEditorPage() {
                   {retryMutation.isPending ? 'Retrying...' : 'Retry'}
                 </button>
               ) : null}
-              {publishingData?.status === 'PUBLISHING' && canCancel ? (
+              {publishingData?.status === 'REVIEW_REQUIRED' && canReview ? (
+                <>
+                  <button
+                    className="btn btn--primary"
+                    disabled={approveMutation.isPending || publishingData.approval_state === 'APPROVED'}
+                    onClick={() => approveMutation.mutate(publishingData.id)}
+                    type="button"
+                  >
+                    {approveMutation.isPending ? 'Approving...' : 'Approve'}
+                  </button>
+                  <button
+                    className="btn btn--danger"
+                    disabled={rejectMutation.isPending || publishingData.approval_state === 'REJECTED'}
+                    onClick={() => rejectMutation.mutate(publishingData.id)}
+                    type="button"
+                  >
+                    {rejectMutation.isPending ? 'Rejecting...' : 'Reject'}
+                  </button>
+                </>
+              ) : null}
+              {(publishingData?.status === 'PUBLISHING' || publishingData?.status === 'REVIEW_REQUIRED') && canCancel ? (
                 <button
                   className="btn btn--danger"
                   disabled={cancelMutation.isPending}
@@ -791,6 +834,12 @@ export function CourseEditorPage() {
             {cancelMutation.isError ? (
               <StatusMsg type="error" text={getErrorMessage(cancelMutation.error)} />
             ) : null}
+            {approveMutation.isError ? (
+              <StatusMsg type="error" text={getErrorMessage(approveMutation.error)} />
+            ) : null}
+            {rejectMutation.isError ? (
+              <StatusMsg type="error" text={getErrorMessage(rejectMutation.error)} />
+            ) : null}
 
             {publishingQuery.isError ? (
               <StatusMsg type="error" text={getErrorMessage(publishingQuery.error)} />
@@ -798,7 +847,7 @@ export function CourseEditorPage() {
 
             {publishingData ? (
               <div className="validation-result">
-                <div className={`message ${publishingData.status === 'READY' ? 'message--success' : publishingData.status === 'FAILED' ? 'message--error' : 'message--warning'}`}>
+                <div className={`message ${publishingData.status === 'READY' ? 'message--success' : publishingData.status === 'FAILED' || publishingData.status === 'CANCELLED' ? 'message--error' : 'message--warning'}`}>
                   Status: {publishingData.status}
                 </div>
                 <div className="meta-list">
@@ -814,7 +863,27 @@ export function CourseEditorPage() {
                     <div className="meta-item__label">Chunks</div>
                     <div className="meta-item__value">{publishingData.total_chunks}</div>
                   </div>
+                  <div className="meta-item">
+                    <div className="meta-item__label">Approval</div>
+                    <div className="meta-item__value">{publishingData.approval_state}</div>
+                  </div>
+                  <div className="meta-item">
+                    <div className="meta-item__label">Manifest hash</div>
+                    <div className="meta-item__value mono">{publishingData.manifest_hash.slice(0, 12)}...</div>
+                  </div>
                 </div>
+                {preflightSummary ? (
+                  <div className="meta-list" style={{ marginBottom: '0.75rem' }}>
+                    <div className="meta-item">
+                      <div className="meta-item__label">Estimated pages</div>
+                      <div className="meta-item__value">{String(preflightSummary.estimated_pages ?? '0')}</div>
+                    </div>
+                    <div className="meta-item">
+                      <div className="meta-item__label">Flagged assets</div>
+                      <div className="meta-item__value">{String(preflightSummary.flagged_assets ?? '0')}</div>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="validation-list">
                   {publishingData.steps.map((step) => (
                     <div className="validation-issue" key={step.id}>

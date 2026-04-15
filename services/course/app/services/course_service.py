@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.asset import Asset
 from app.models.course import Course
+from app.repositories.asset_repository import AssetRepository
 from app.repositories.course_repository import CourseRepository
 from app.repositories.module_repository import ModuleRepository
 from app.schemas.course import CourseCreate, CourseOut, CourseUpdate, CourseListItem, ModuleOut
+from app.schemas.publishing import PublishManifest, PublishManifestAsset, PublishManifestModule
 from app.services.slug_service import SlugService
-from educorp_common.errors import ConflictError, ForbiddenError, NotFoundError
+from educorp_common.errors import ConflictError, ForbiddenError, NotFoundError, ValidationError
 
 
 def _parse_duration(value: str | None) -> timedelta | None:
@@ -55,6 +58,7 @@ class CourseService:
         self._session = session
         self._repo = CourseRepository(session)
         self._module_repo = ModuleRepository(session)
+        self._asset_repo = AssetRepository(session)
         self._slug = SlugService(self._repo)
 
     async def create_course(
@@ -90,12 +94,9 @@ class CourseService:
         if not self._can_view(course, caller_id, roles):
             raise ForbiddenError("You do not have access to this course")
         modules = await self._module_repo.list_for_course(course_id)
-        from app.repositories.asset_repository import AssetRepository
-
-        asset_repo = AssetRepository(self._session)
         module_outs = []
         for m in modules:
-            count = await asset_repo.count_for_module(m.id)
+            count = await self._asset_repo.count_for_module(m.id)
             module_outs.append(
                 ModuleOut(
                     id=m.id,
@@ -156,6 +157,64 @@ class CourseService:
         if course.visibility != "DRAFT":
             raise ConflictError("Only draft courses can be published")
         return course
+
+    async def build_publish_snapshot(
+        self,
+        *,
+        course_id: UUID,
+        caller_id: UUID,
+        caller_roles: list[str],
+    ) -> PublishManifest:
+        course = await self.get_course_for_publish(
+            course_id=course_id,
+            caller_id=caller_id,
+            caller_roles=caller_roles,
+        )
+        modules = await self._module_repo.list_for_course(course_id)
+
+        manifest_modules: list[PublishManifestModule] = []
+        for module in modules:
+            assets = await self._asset_repo.list_for_module(module.id)
+            manifest_modules.append(
+                PublishManifestModule(
+                    id=module.id,
+                    title=module.title,
+                    description=module.description,
+                    sort_order=module.sort_order,
+                    is_required=module.is_required,
+                    estimated_duration=_format_duration(module.estimated_duration),
+                    assets=[self._build_manifest_asset(asset) for asset in assets],
+                )
+            )
+
+        return PublishManifest(
+            course_id=course.id,
+            instructor_id=course.instructor_id,
+            requested_by=caller_id,
+            title=course.title,
+            slug=course.slug,
+            description=course.description,
+            short_description=course.short_description,
+            category=course.category,
+            difficulty=course.difficulty,
+            estimated_duration=_format_duration(course.estimated_duration),
+            tags=course.tags or [],
+            generated_at=datetime.now(timezone.utc),
+            modules=manifest_modules,
+        )
+
+    async def activate_course_version(
+        self,
+        *,
+        course_id: UUID,
+        version_id: UUID,
+    ) -> CourseOut:
+        course = await self._get_or_404(course_id)
+        course.current_version_id = version_id
+        course.visibility = "PUBLISHED"
+        course = await self._repo.update(course)
+        await self._session.refresh(course)
+        return self._to_out(course)
 
     async def list_courses(
         self,
@@ -248,4 +307,25 @@ class CourseService:
             thumbnail_url=course.thumbnail_url,
             visibility=course.visibility,
             created_at=course.created_at,
+        )
+
+    @staticmethod
+    def _build_manifest_asset(asset: Asset) -> PublishManifestAsset:
+        if asset.upload_status != "UPLOADED":
+            raise ValidationError("Asset upload is incomplete")
+        if not asset.checksum:
+            raise ValidationError(f"Asset {asset.file_name} is missing a stable checksum")
+        if not asset.storage_path:
+            raise ValidationError(f"Asset {asset.file_name} is missing an object storage path")
+
+        return PublishManifestAsset(
+            id=asset.id,
+            title=asset.title,
+            asset_type=asset.asset_type,
+            file_name=asset.file_name,
+            file_size=asset.file_size,
+            mime_type=asset.mime_type,
+            storage_path=asset.storage_path,
+            checksum=asset.checksum,
+            sort_order=asset.sort_order,
         )

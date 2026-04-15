@@ -47,12 +47,14 @@ async def main() -> None:
         task_queue=settings.temporal_task_queue,
         workflows=[PublishCourseWorkflow],
         activities=[
-            activities.validate_assets,
+            activities.preflight_review,
+            activities.mark_version_publishing,
             activities.extract_text,
             activities.chunk_content,
             activities.generate_embeddings,
             activities.index_qdrant,
             activities.finalize_version,
+            activities.mark_version_rejected,
             activities.mark_version_failed,
         ],
     )

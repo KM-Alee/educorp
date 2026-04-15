@@ -17,7 +17,7 @@ from app.dependencies import (
 )
 from app.schemas.course import CourseCreate, CourseListItem, CourseOut, CourseUpdate
 from app.schemas.draft import DraftContentDocument, DraftContentUpdate, DraftValidationResult
-from app.schemas.publishing import PublishVersionResponse
+from app.schemas.publishing import ActivateCourseVersionRequest, PublishVersionResponse
 from app.services.course_service import CourseService
 from app.services.draft_content_service import DraftContentService
 from app.services.draft_validation_service import DraftValidationService
@@ -202,9 +202,10 @@ async def publish_course(
     session: AsyncSession = Depends(get_session),
 ) -> SuccessResponse[PublishVersionResponse]:
     svc = CourseService(session)
+    caller_id = UUID(current_user["id"])
     await svc.get_course_for_publish(
         course_id=course_id,
-        caller_id=UUID(current_user["id"]),
+        caller_id=caller_id,
         caller_roles=current_user["roles"],
     )
 
@@ -220,12 +221,37 @@ async def publish_course(
             details=[issue.model_dump() for issue in issues],
         )
 
+    snapshot = await svc.build_publish_snapshot(
+        course_id=course_id,
+        caller_id=caller_id,
+        caller_roles=current_user["roles"],
+    )
+
     client = PublishingClient()
     result = await client.create_version(
-        course_id=course_id,
+        manifest=snapshot,
         auth_header=request.headers.get("Authorization"),
         correlation_id=get_correlation_id(),
     )
+    return SuccessResponse(data=result, meta=_meta())
+
+
+@router.post(
+    "/internal/{course_id}/activate-version",
+    response_model=SuccessResponse[CourseOut],
+)
+async def activate_course_version(
+    course_id: UUID,
+    payload: ActivateCourseVersionRequest,
+    _current_user: CurrentUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+) -> SuccessResponse[CourseOut]:
+    svc = CourseService(session)
+    result = await svc.activate_course_version(
+        course_id=course_id,
+        version_id=payload.version_id,
+    )
+    await session.commit()
     return SuccessResponse(data=result, meta=_meta())
 
 

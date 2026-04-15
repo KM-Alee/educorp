@@ -1,123 +1,99 @@
-# EduCorp — Phase 3 Implementation Plan
+# EduCorp - Phase 3 Overhaul Overview
 
-## Goal
+This document replaces the old single-pass Phase 3 plan.
 
-Deliver a production-shaped publishing pipeline that turns a validated draft course into a searchable, READY course version. The outcome for Phase 3 is not just an endpoint that says "publishing started"; it is an end-to-end workflow with durable status tracking, search indexing, and an operator-friendly surface in the web app.
+The repo already has a working publish path, a Temporal worker, a search service, and a frontend publishing screen. The problem is not total absence of Phase 3. The problem is that the current implementation is too direct, too mutable, and too weak for real production publishing of lecture material, especially PDF slide decks with lots of images.
 
-## Current Starting Point
+The overhaul is split into three execution phases. Each phase is designed for an AI coding agent to implement, but each phase also ends with a mandatory human validation gate before the next phase starts.
 
-- Phase 2 already provides draft course CRUD, module CRUD and ordering, asset storage in MinIO, draft validation, and Mongo-backed draft content.
-- The first-party web app can now exercise the authoring workflow from `/app/courses` and `/app/courses/:courseId`.
-- The main missing capabilities for Phase 3 are versioning, orchestration, extraction/chunking, embedding/indexing, and search/catalog delivery.
+## Why The Overhaul Is Necessary
 
-## Design Decisions
+- The current publishing workflow reads mutable draft state while a publish is running.
+- The current workflow passes large in-memory payloads between Temporal activities instead of persisting artifacts and passing IDs.
+- The current extraction path is mostly text-only and does not handle image-heavy PDF slides well.
+- The current embedding configuration still points at placeholder or incorrect defaults.
+- The current implementation is thin on operator review, cost control, and end-to-end proof with real course files.
 
-- Use the course service as the source of truth for draft validation and version creation, but keep workflow orchestration in the publishing service.
-- Treat publishing as an idempotent state machine keyed by course version, not as an ad hoc fire-and-forget task.
-- Keep text extraction and embedding generation in explicit Temporal activities so retries, cancellation, and observability stay first-class.
-- Make PostgreSQL the source of truth for version metadata and publishing progress; use Qdrant as a derived index only.
-- Add the web track in lockstep: publishing status and catalog/search views should ship with the backend path, not later.
+## Non-Negotiable Design Rules
 
-## Workstreams
+- Do not commit external API secrets to the repo.
+- MinIO remains the canonical object store for raw assets and derived publishing artifacts.
+- Temporal orchestrates IDs and state transitions, not large blobs.
+- Course drafts remain mutable in the course service; published versions become immutable snapshots in the publishing service.
+- Publishing owns Qdrant writes. Search only reads from Qdrant.
+- Local extraction comes first. Real external APIs are used only where they add clear value.
+- Every phase ends with human validation. No skipping.
 
-### 1. Data model and contracts
+## External Systems In Scope
 
-- Add `course_versions`, `publishing_steps`, and `chunks` models plus migrations.
-- Define version lifecycle states such as `DRAFT`, `PUBLISHING`, `READY`, `FAILED`, and `CANCELLED`.
-- Add response schemas for publish requests, version status, retry, cancel, and catalog/search results.
-- Update `docs/API_CONTRACTS.md`, `docs/DATA_MODELS.md`, and `docs/PHASES.md` as each contract stabilizes.
+### MinIO
 
-### 2. Publishing orchestration
+- Console: http://localhost:9001
+- Dev access key: educorp
+- Dev secret key: educorp_dev
+- Bucket: course-assets
 
-- Implement a `PublishCourseWorkflow` in the publishing service.
-- Create activities for asset validation, text extraction, chunking, embedding generation, Qdrant indexing, and finalization.
-- Persist step-level progress so status APIs do not depend solely on Temporal history.
-- Make retries idempotent at the version level and ensure cancellation leaves the version in a coherent state.
+### Temporal
 
-### 3. Extraction and indexing pipeline
+- UI: http://localhost:8088
+- Namespace: educorp
+- Task queue to keep using: publishing
 
-- Add extractor adapters for PDF, DOCX, PPTX, TXT, VTT, and SRT.
-- Normalize extracted text and attach stable metadata: course, module, asset, chunk position, and version.
-- Batch embedding calls behind a provider abstraction compatible with the existing OpenAI-compatible stack.
-- Create the Qdrant collection and payload indexes during service startup or a controlled bootstrap step.
+### Qdrant
 
-### 4. Search and catalog delivery
+- API: http://localhost:6333
+- Use a new collection for the overhaul: course_chunks_v2
 
-- Expose browseable catalog endpoints over READY courses only.
-- Implement keyword search first in PostgreSQL over course metadata.
-- Add semantic search over Qdrant-backed chunks for the search service once the indexing pipeline is stable.
-- Return version-aware metadata so the frontend and future AI surfaces can explain what is searchable.
+### Real Provider Setup
 
-### 5. Frontend track
+Use locally supplied secrets only. Do not place real provider keys in tracked files.
 
-- Add a publish action to the course editor with explicit validation feedback.
-- Add a publishing status view with per-step progress and failure messaging.
-- Add catalog and search routes that use READY course data only.
-- Keep the UI operational: status, failures, retry, and cancel should be legible without opening Temporal.
+- NanoGPT base URL: https://nano-gpt.com/api/v1
+- NanoGPT model: google/gemma-4-31b-it
+- OpenAI embedding model: text-embedding-3-small
 
-## Execution Sequence
+The implementation work for this overhaul must convert the repo from generic `LLM_*` and `EMBEDDING_*` placeholders into explicit provider configuration with clear local-only secret handling.
 
-### Milestone 1: Versioning foundation
+## How To Use This Overhaul Plan
 
-- Add models, migrations, repositories, and schemas.
-- Implement `POST /courses/{id}/publish` to create a version record and start a workflow stub.
-- Implement `GET /publishing/versions/{version_id}` against stored step rows.
-- Verify with backend tests and a manual publish smoke path.
+1. Complete [Phase 1](docs/PHASE3_OVERHAUL_PHASE1_FOUNDATION.md).
+2. Stop and perform the full human validation checklist.
+3. Complete [Phase 2](docs/PHASE3_OVERHAUL_PHASE2_INGESTION.md).
+4. Stop and perform the full human validation checklist.
+5. Complete [Phase 3](docs/PHASE3_OVERHAUL_PHASE3_SEARCH_AND_E2E.md).
+6. Stop and perform the full human validation checklist, including the dummy-course publish run.
 
-### Milestone 2: Real workflow activities
+## Deliverables By Phase
 
-- Add asset validation and extraction activities first.
-- Add chunking and embedding generation next.
-- Add Qdrant indexing and finalization last.
-- Verify each activity in isolation, then the composed workflow with mocked external dependencies.
+### Phase 1
 
-### Milestone 3: Search and catalog
+- Immutable publish manifest and artifact model
+- Course-to-publishing snapshot boundary
+- Human preflight gate before real processing
+- Correct provider env layout without committed secrets
+- Temporal workflow refactored to pass IDs, not large payloads
 
-- Implement catalog browse against READY versions.
-- Implement metadata keyword search.
-- Implement semantic retrieval in the search service.
-- Verify catalog/search correctness with seeded data and integration tests.
+### Phase 2
 
-### Milestone 4: Web completion and hardening
+- Hybrid extraction for text-first and image-heavy PDFs
+- Cheap OCR rescue path plus selective NanoGPT visual enrichment
+- Content hashing, artifact caching, chunk hashing, embedding caching
+- Version-scoped MinIO artifacts and version-scoped Qdrant indexing
 
-- Ship publish/status/catalog/search routes in `apps/web`.
-- Add retry and cancel controls for failed or in-flight publishing jobs.
-- Add route, API, and happy-path authoring-to-publish frontend tests.
+### Phase 3
 
-## Testing Strategy
+- Activation and approval flow
+- Better keyword and semantic search
+- Search-safe citations and source metadata
+- Operator cleanup and retention tasks
+- Dummy-course end-to-end publish run driven by an AI agent and validated by a human
 
-- Unit test extractors, chunking, state transitions, and embedding batching.
-- Integration test publish endpoint, version persistence, and workflow status mapping.
-- Mock embedding providers and Qdrant in service-level tests.
-- Add at least one full publish happy path behind a lightweight local stack or high-fidelity mocks.
-- Confirm Phase 3 coverage stays above the project threshold before starting Phase 4.
+## Strict Operator Rule
 
-## Risks and Mitigations
+If any manual validation item fails, the phase is not complete. Fix the failing items before moving forward.
 
-- Text extraction libraries vary by file type.
-Mitigation: isolate them behind small activity adapters and normalize outputs early.
+## Detailed Phase Docs
 
-- Embedding calls can be slow or rate-limited.
-Mitigation: batch requests, persist progress between steps, and make retries idempotent.
-
-- Search can drift from source-of-truth course state.
-Mitigation: only surface READY versions and finalize version activation in one explicit step.
-
-- Workflow observability can become opaque if status only lives in Temporal.
-Mitigation: persist step rows and expose them directly in the API and web UI.
-
-- Users may lose visibility into in-flight publishes after refreshing the web app.
-Mitigation: store the last publish version ID per course and poll status until completion.
-
-- Retry/cancel could leave steps in mixed states.
-Mitigation: reset steps on retry and mark pending/running steps as skipped on cancel.
-
-## Exit Criteria
-
-- An instructor can publish a validated draft from the web app.
-- A version transitions from `PUBLISHING` to `READY` with durable step tracking.
-- READY courses appear in catalog browse and keyword search.
-- Semantic chunks are indexed in Qdrant with course/module/asset metadata.
-- Failed publishes are inspectable and retryable without manual database intervention.
-- Web UI shows publish controls, per-step status, retry, and cancel actions.
-- Catalog and search routes surface READY courses only.
+- [Phase 1 Foundation](docs/PHASE3_OVERHAUL_PHASE1_FOUNDATION.md)
+- [Phase 2 Ingestion](docs/PHASE3_OVERHAUL_PHASE2_INGESTION.md)
+- [Phase 3 Search And E2E](docs/PHASE3_OVERHAUL_PHASE3_SEARCH_AND_E2E.md)

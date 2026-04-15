@@ -79,7 +79,7 @@ async def semantic_search(
     return SuccessResponse(
         data=SemanticSearchResponse(
             chunks=chunks,
-            query_embedding_model=settings.embedding_model,
+            query_embedding_model=settings.openai_embedding_model,
             total_results=len(chunks),
         ),
         meta=_meta(),

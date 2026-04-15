@@ -25,13 +25,16 @@ class Settings(BaseAppSettings):
     # Qdrant
     qdrant_host: str = "qdrant"
     qdrant_port: int = 6333
-    qdrant_collection: str = "course_chunks"
+    qdrant_collection: str = "course_chunks_v2"
 
-    # Embeddings
-    embedding_base_url: str = "https://nano-gpt.com/api/v1"
-    embedding_api_key: str = "change-me"
-    embedding_model: str = "text-embedding-ada-002"
-    embedding_dimension: int = 1536
+    # Provider configuration
+    nanogpt_base_url: str = "https://nano-gpt.com/api/v1"
+    nanogpt_api_key: str = "change-me"
+    nanogpt_model: str = "google/gemma-4-31b-it"
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_api_key: str = "change-me"
+    openai_embedding_model: str = "text-embedding-3-small"
+    openai_embedding_dimension: int = 1536
 
     # Chunking
     chunk_size: int = 1200

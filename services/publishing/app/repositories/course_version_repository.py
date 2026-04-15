@@ -31,7 +31,7 @@ class CourseVersionRepository:
         result = await self._session.execute(
             select(CourseVersion).where(
                 CourseVersion.course_id == course_id,
-                CourseVersion.status == "PUBLISHING",
+                CourseVersion.status.in_(["PREPARING", "REVIEW_REQUIRED", "PUBLISHING"]),
             )
         )
         return result.scalar_one_or_none()

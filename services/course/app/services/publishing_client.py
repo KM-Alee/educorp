@@ -6,7 +6,7 @@ from uuid import UUID
 import httpx
 
 from app.config import settings
-from app.schemas.publishing import PublishVersionResponse
+from app.schemas.publishing import PublishManifest, PublishVersionResponse
 from educorp_common.errors import EduCorpError
 
 
@@ -19,7 +19,7 @@ class PublishingClient:
     async def create_version(
         self,
         *,
-        course_id: UUID,
+        manifest: PublishManifest,
         auth_header: str | None,
         correlation_id: str | None,
     ) -> PublishVersionResponse:
@@ -35,7 +35,7 @@ class PublishingClient:
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.post(
                 f"{self._base_url}/versions",
-                json={"course_id": str(course_id)},
+                json=manifest.model_dump(mode="json"),
                 headers=headers,
             )
 
@@ -60,6 +60,7 @@ class PublishingClient:
             version_id=UUID(data["version_id"]),
             version_number=int(data["version_number"]),
             status=str(data["status"]),
+            approval_state=data.get("approval_state"),
             workflow_id=data.get("workflow_id"),
             message=str(data.get("message", "Publishing started")),
         )

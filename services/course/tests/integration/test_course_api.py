@@ -10,6 +10,12 @@ from httpx import ASGITransport, AsyncClient
 from app.dependencies import get_current_user, get_minio, get_session
 from app.main import create_app
 from app.schemas.course import CourseListItem, CourseOut
+from app.schemas.publishing import (
+    PublishManifest,
+    PublishManifestAsset,
+    PublishManifestModule,
+    PublishVersionResponse,
+)
 from educorp_common.auth.dependencies import CurrentUser
 
 
@@ -319,5 +325,126 @@ class TestDeleteCourse:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.delete(f"/api/v1/courses/{uuid4()}")
         assert resp.status_code == 403
+
+        app.dependency_overrides.clear()
+
+
+class TestPublishCourse:
+    async def test_publish_forwards_manifest_snapshot(
+        self, instructor, instructor_id, mock_session, mock_minio
+    ):
+        app = create_app()
+        app.dependency_overrides[get_session] = lambda: mock_session
+        app.dependency_overrides[get_current_user] = _make_auth(instructor)
+        app.dependency_overrides[get_minio] = lambda: mock_minio
+
+        snapshot = PublishManifest(
+            course_id=uuid4(),
+            instructor_id=instructor_id,
+            requested_by=instructor_id,
+            title="Snapshot Course",
+            slug="snapshot-course",
+            description="Frozen draft",
+            short_description="Short",
+            category="CS",
+            difficulty="beginner",
+            estimated_duration="PT2H",
+            tags=["phase3"],
+            generated_at=datetime.now(timezone.utc),
+            modules=[
+                PublishManifestModule(
+                    id=uuid4(),
+                    title="Week 1",
+                    description="Intro",
+                    sort_order=0,
+                    is_required=True,
+                    estimated_duration="PT1H",
+                    assets=[
+                        PublishManifestAsset(
+                            id=uuid4(),
+                            title="Slides",
+                            asset_type="pdf",
+                            file_name="slides.pdf",
+                            file_size=128,
+                            mime_type="application/pdf",
+                            storage_path="raw/abc123",
+                            checksum="abc123",
+                            sort_order=0,
+                        )
+                    ],
+                )
+            ],
+        )
+
+        publish_response = PublishVersionResponse(
+            version_id=uuid4(),
+            version_number=3,
+            status="PREPARING",
+            approval_state="PENDING",
+            workflow_id="publish-test",
+            message="Publishing started",
+        )
+
+        with patch("app.api.v1.courses.CourseService") as MockCourseSvc, patch(
+            "app.api.v1.courses.DraftValidationService"
+        ) as MockValidationSvc, patch("app.api.v1.courses.PublishingClient") as MockClient:
+            course_service = MockCourseSvc.return_value
+            course_service.get_course_for_publish = AsyncMock(return_value=object())
+            course_service.build_publish_snapshot = AsyncMock(return_value=snapshot)
+
+            validation_service = MockValidationSvc.return_value
+            validation_service.validate = AsyncMock(return_value=[])
+
+            client_service = MockClient.return_value
+            client_service.create_version = AsyncMock(return_value=publish_response)
+
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post(f"/api/v1/courses/{snapshot.course_id}/publish")
+
+            assert resp.status_code == 202
+            client_service.create_version.assert_awaited_once()
+            forwarded_manifest = client_service.create_version.await_args.kwargs["manifest"]
+            assert forwarded_manifest.course_id == snapshot.course_id
+            assert forwarded_manifest.modules[0].assets[0].checksum == "abc123"
+
+        app.dependency_overrides.clear()
+
+
+class TestActivateCourseVersion:
+    async def test_activate_course_version_updates_course(
+        self, admin_user, mock_session, mock_minio
+    ):
+        app = create_app()
+        app.dependency_overrides[get_session] = lambda: mock_session
+        app.dependency_overrides[get_current_user] = _make_auth(admin_user)
+        app.dependency_overrides[get_minio] = lambda: mock_minio
+
+        course_id = uuid4()
+        version_id = uuid4()
+        course_out = _sample_course_out(
+            uuid4(),
+            id=course_id,
+            visibility="PUBLISHED",
+            current_version_id=version_id,
+        )
+
+        with patch("app.api.v1.courses.CourseService") as MockSvc:
+            instance = MockSvc.return_value
+            instance.activate_course_version = AsyncMock(return_value=course_out)
+
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post(
+                    f"/api/v1/courses/internal/{course_id}/activate-version",
+                    json={"version_id": str(version_id)},
+                )
+
+            assert resp.status_code == 200
+            instance.activate_course_version.assert_awaited_once_with(
+                course_id=course_id,
+                version_id=version_id,
+            )
+            assert resp.json()["data"]["current_version_id"] == str(version_id)
 
         app.dependency_overrides.clear()

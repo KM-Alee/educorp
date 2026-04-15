@@ -211,8 +211,20 @@ export interface PublishVersionResponse {
   version_id: string
   version_number: number
   status: string
+  approval_state: string | null
   workflow_id: string | null
   message: string
+}
+
+export interface PublishingArtifact {
+  id: string
+  artifact_type: string
+  object_path: string
+  sha256: string
+  content_type: string
+  size_bytes: number
+  metadata: Record<string, unknown>
+  created_at: string
 }
 
 export interface PublishingStep {
@@ -230,9 +242,12 @@ export interface PublishingVersion {
   course_id: string
   version_number: number
   status: string
+  approval_state: string
   initiated_by: string
   workflow_id: string | null
   run_id: string | null
+  manifest_hash: string
+  preflight_summary_json: Record<string, unknown> | null
   error_details: Record<string, unknown> | null
   total_chunks: number
   total_assets: number
@@ -240,7 +255,10 @@ export interface PublishingVersion {
   processing_completed_at: string | null
   created_at: string
   ready_at: string | null
+  activated_at: string | null
+  superseded_at: string | null
   steps: PublishingStep[]
+  artifacts: PublishingArtifact[]
 }
 
 export interface CourseSearchItem {
@@ -800,6 +818,24 @@ export async function retryPublishingVersion(versionId: string): Promise<Publish
 export async function cancelPublishingVersion(versionId: string): Promise<PublishVersionResponse> {
   const response = await requestEnvelope<PublishVersionResponse>(
     `${PUBLISHING_BASE}/versions/${versionId}/cancel`,
+    { method: 'POST' },
+    { auth: true },
+  )
+  return response.data
+}
+
+export async function approvePublishingVersion(versionId: string): Promise<PublishVersionResponse> {
+  const response = await requestEnvelope<PublishVersionResponse>(
+    `${PUBLISHING_BASE}/versions/${versionId}/approve`,
+    { method: 'POST' },
+    { auth: true },
+  )
+  return response.data
+}
+
+export async function rejectPublishingVersion(versionId: string): Promise<PublishVersionResponse> {
+  const response = await requestEnvelope<PublishVersionResponse>(
+    `${PUBLISHING_BASE}/versions/${versionId}/reject`,
     { method: 'POST' },
     { auth: true },
   )
