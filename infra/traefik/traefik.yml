@@ -16,6 +16,8 @@ log:
 
 accessLog: {}
 
+ping: {}
+
 metrics:
   prometheus:
     addServicesLabels: true

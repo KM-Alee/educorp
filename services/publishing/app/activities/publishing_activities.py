@@ -401,7 +401,7 @@ async def _mark_step(
     if error_message:
         step.error_message = error_message
     if metadata is not None:
-        step.metadata = metadata
+        step.step_metadata = metadata
     await repo.update(step)
 
 

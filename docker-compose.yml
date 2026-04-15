@@ -189,6 +189,24 @@ services:
       start_period: 30s
       retries: 10
 
+  temporal-init:
+    image: temporalio/auto-setup:1.24.2
+    <<: *service-defaults
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until temporal operator namespace describe --namespace educorp --address temporal:7233 > /dev/null 2>&1; do
+          echo "Registering educorp namespace...";
+          temporal operator namespace create --namespace educorp --retention 72h \
+            --description "EduCorp publishing workflows" --address temporal:7233 2>&1 || true;
+          sleep 3;
+        done;
+        echo "Namespace educorp is ready."
+    depends_on:
+      temporal:
+        condition: service_healthy
+    restart: "no"
+
   temporal-ui:
     image: temporalio/ui:2.26.2
     <<: *service-defaults

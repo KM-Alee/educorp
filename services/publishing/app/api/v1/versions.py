@@ -119,7 +119,7 @@ async def get_version_status(
                     started_at=step.started_at,
                     completed_at=step.completed_at,
                     error_message=step.error_message,
-                    metadata=step.metadata or {},
+                    metadata=step.step_metadata or {},
                 )
                 for step in steps
             ],

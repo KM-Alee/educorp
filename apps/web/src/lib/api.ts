@@ -256,10 +256,28 @@ export interface CourseSearchItem {
 
 async function parsePayload<T>(response: Response): Promise<T | null> {
   const text = await response.text()
-  if (!text) {
+  const trimmed = text.trim()
+  if (!trimmed) {
     return null
   }
-  return JSON.parse(text) as T
+
+  const contentType = response.headers.get('Content-Type') ?? ''
+  if (!contentType.includes('application/json')) {
+    // Backend returned non-JSON (e.g. HTML error page from gateway)
+    throw new ApiError(response.status, {
+      code: 'NON_JSON_RESPONSE',
+      message: `Server returned an unexpected response (${response.status}). Please try again later.`,
+    })
+  }
+
+  try {
+    return JSON.parse(trimmed) as T
+  } catch {
+    throw new ApiError(response.status, {
+      code: 'INVALID_JSON',
+      message: `Server returned malformed data (${response.status}). Please try again later.`,
+    })
+  }
 }
 
 function createError(status: number, body: ApiErrorBody | undefined): ApiError {
@@ -281,9 +299,15 @@ async function refreshSession(): Promise<boolean> {
     body: JSON.stringify({ refresh_token: currentSession.refreshToken }),
   })
 
-  const payload = await parsePayload<
-    SuccessResponse<RefreshTokenResponse> | ApiErrorResponse
-  >(response)
+  let payload: SuccessResponse<RefreshTokenResponse> | ApiErrorResponse | null
+  try {
+    payload = await parsePayload<
+      SuccessResponse<RefreshTokenResponse> | ApiErrorResponse
+    >(response)
+  } catch {
+    clearSession()
+    return false
+  }
 
   if (!response.ok || !payload || !('data' in payload)) {
     clearSession()

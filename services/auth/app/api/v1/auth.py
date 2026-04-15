@@ -250,7 +250,8 @@ async def update_me(
         ip_address=ip_address,
         user_agent=user_agent,
     )
-    await session.commit()
+    # Materialize fields before commit to avoid async lazy-load edge cases.
+    await session.refresh(user)
     data = UserProfileOut(
         id=user.id,
         email=user.email,
@@ -263,6 +264,7 @@ async def update_me(
         created_at=user.created_at,
         updated_at=user.updated_at,
     )
+    await session.commit()
     return SuccessResponse(data=data, meta=build_meta())
 
 

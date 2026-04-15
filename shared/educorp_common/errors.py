@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from educorp_common.middleware.correlation import get_correlation_id
+
+logger = logging.getLogger(__name__)
 
 
 class EduCorpError(Exception):
@@ -94,6 +98,52 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "code": exc.code,
                     "message": exc.message,
                     "details": exc.details,
+                    "correlation_id": correlation_id,
+                    "timestamp": timestamp,
+                }
+            },
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        correlation_id = get_correlation_id()
+        timestamp = datetime.now(timezone.utc).isoformat()
+        details = [
+            {"field": ".".join(str(loc) for loc in e["loc"]), "message": e["msg"]}
+            for e in exc.errors()
+        ]
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Request validation failed",
+                    "details": details,
+                    "correlation_id": correlation_id,
+                    "timestamp": timestamp,
+                }
+            },
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_error_handler(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        correlation_id = get_correlation_id()
+        timestamp = datetime.now(timezone.utc).isoformat()
+        logger.exception(
+            "Unhandled exception",
+            extra={"correlation_id": correlation_id, "path": str(request.url)},
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "An unexpected error occurred",
+                    "details": [],
                     "correlation_id": correlation_id,
                     "timestamp": timestamp,
                 }

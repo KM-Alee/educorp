@@ -31,4 +31,4 @@ class PublishingStep(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     error_message: Mapped[str | None] = mapped_column(Text, default=None)
-    metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+    step_metadata: Mapped[dict] = mapped_column(JSONB, name="metadata", default=dict)

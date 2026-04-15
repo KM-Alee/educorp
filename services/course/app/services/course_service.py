@@ -134,6 +134,7 @@ class CourseService:
             course.slug = await self._slug.generate(course.title, exclude_id=course.id)
 
         course = await self._repo.update(course)
+        await self._session.refresh(course)
         return self._to_out(course)
 
     async def soft_delete_course(
