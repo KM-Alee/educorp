@@ -42,11 +42,39 @@ The entire development environment runs via Docker Compose. All services, databa
 
 ## 2. Docker Compose Configuration
 
-### 2.1 `docker-compose.yml` (complete stack)
+### 2.1 Profiles
+
+The stack uses **Docker Compose profiles** for selective startup to save resources:
+
+| Profile | Services Added | Use When |
+|---------|---------------|----------|
+| *(none)* | postgres, mongodb, redis, qdrant, minio, traefik | Backend dev against raw DBs |
+| `messaging` | + kafka, zookeeper, schema-registry, rabbitmq, kafka-init | Working on events/messaging |
+| `workflow` | + temporal, temporal-init, temporal-ui | Working on publishing workflows |
+| `observability` | + prometheus, grafana, jaeger | Debugging performance/tracing |
+| `app` | + all 9 services + workers + frontend | Full app development |
+| `full` | Everything above combined | Integration testing |
+| `debug` | Same as full (services include debugpy) | Remote debugging sessions |
+
+```bash
+docker compose --profile messaging --profile app up -d   # Custom combination
+make up-app                                               # All services + infra
+make up-full                                              # Everything
+```
+
+### 2.2 Resource Limits
+
+All containers have resource limits defined via YAML anchors:
+
+| Tier | Memory Limit | CPU Limit | Used By |
+|------|-------------|-----------|---------|
+| `x-resource-small` | 256 MB | 0.5 | Redis, Qdrant, ZooKeeper, Schema Registry, MinIO, Traefik |
+| `x-resource-medium` | 512 MB | 1.0 | App services, workers, RabbitMQ, Jaeger, Grafana |
+| `x-resource-large` | 1 GB | 2.0 | PostgreSQL, MongoDB, Kafka, Temporal, Prometheus |
+
+### 2.3 `docker-compose.yml` structure
 
 ```yaml
-version: "3.9"
-
 x-service-defaults: &service-defaults
   restart: unless-stopped
   networks:
@@ -59,6 +87,7 @@ x-python-service: &python-service
   build:
     context: .
     dockerfile: infra/docker/Dockerfile.service
+    target: dev
   volumes:
     - ./shared:/app/shared:ro
 
@@ -314,61 +343,63 @@ networks:
 
 ### 3.1 Base Service Dockerfile
 
+The Dockerfile uses a **multi-stage build** with separate `runtime` and `dev` targets:
+
 ```dockerfile
 # infra/docker/Dockerfile.service
-# Multi-stage build for all Python services
 
+# ── Base: minimal runtime image ──────────────────
 FROM python:3.12-slim AS base
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
-
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
-
-# Install system deps needed by common libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+    libpq5 curl && rm -rf /var/lib/apt/lists/*
 
-# ───────────────────────────────────────────────────
+# ── Builder: compile/install dependencies ────────
 FROM base AS builder
-
-# Install uv for fast dependency management
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential libpq-dev && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Install shared library
+# Shared library first (rarely changes → cached)
 COPY shared/ /app/shared/
-RUN cd /app/shared && uv pip install --system -e .
+RUN --mount=type=cache,target=/root/.cache/uv \
+    cd /app/shared && uv pip install --system -e .
 
-# Install service dependencies
+# Service deps (changes only when pyproject.toml changes)
 ARG SERVICE_DIR
 COPY ${SERVICE_DIR}/pyproject.toml ${SERVICE_DIR}/uv.lock* /app/service/
-RUN cd /app/service && uv pip install --system -e .
-
+RUN --mount=type=cache,target=/root/.cache/uv \
+    cd /app/service && uv pip install --system -e .
 COPY ${SERVICE_DIR}/ /app/service/
 
-# ───────────────────────────────────────────────────
+# ── Runtime: production-like ─────────────────────
 FROM base AS runtime
-
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
-COPY --from=builder /app/shared /app/shared
-COPY --from=builder /app/service /app/service
-
+COPY --from=builder /app /app
 WORKDIR /app/service
-
-# Non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 USER appuser
-
 EXPOSE 8000
-
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
+    CMD ["curl", "-f", "http://localhost:8000/health/ready"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+
+# ── Dev: adds debugpy + watchfiles for hot reload ─
+FROM runtime AS dev
+USER root
+RUN pip install --no-cache-dir debugpy watchfiles
+USER appuser
+EXPOSE 5678
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 ```
+
+**Key design decisions:**
+- **BuildKit cache mounts** (`--mount=type=cache`) reuse the uv/pip cache across builds
+- **`dev` target** includes `debugpy` and `watchfiles` for hot-reload and remote debugging
+- **`runtime` target** is production-like: no dev tools, non-root user, built-in `HEALTHCHECK`
+- Docker Compose uses `target: dev` for all app services during development
 
 ## 4. Database Initialization
 
@@ -769,112 +800,94 @@ INSTRUCTOR_AUTO_APPROVE=false
 AI_RETENTION_DAYS=90
 ```
 
-## 9. Makefile
+## 9. Makefile & Build Commands
 
-```makefile
-# Makefile — Developer shortcuts
-.PHONY: help up down restart logs build test migrate seed clean
+### 9.1 Linux/macOS (Makefile)
 
-COMPOSE=docker compose
-SERVICE?=
+```bash
+# Startup (profile-based)
+make up                 # Core infra only (~30s)
+make up-messaging       # + Kafka, RabbitMQ, Schema Registry
+make up-workflow        # + Temporal
+make up-app             # + All 9 services + frontend
+make up-full            # Everything including observability
+make start              # Full orchestrated startup (migrations + seeding)
 
-help: ## Show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+# Development
+make logs SERVICE=auth  # Tail service logs
+make health             # Health check all endpoints (formatted table)
+make shell SERVICE=auth # Shell into a container
+make exec SERVICE=auth CMD="alembic upgrade head"
 
-# ─── Docker ──────────────────────────────────────
-up: ## Start all services
-	$(COMPOSE) up -d
+# Debugging
+make debug-service SERVICE=auth  # Attach debugpy on port 5678
 
-up-infra: ## Start infrastructure only
-	$(COMPOSE) up -d postgres mongodb redis qdrant minio kafka zookeeper schema-registry rabbitmq temporal temporal-ui prometheus grafana jaeger traefik
+# Database
+make migrate            # Run all Alembic migrations
+make migrate-create SERVICE=auth MSG="add users table"
 
-down: ## Stop all services
-	$(COMPOSE) down
+# Testing
+make test SERVICE=auth          # Run tests for a service
+make test-coverage SERVICE=auth # With coverage report
+make lint                       # Ruff + Mypy
 
-restart: ## Restart all (or specific SERVICE=name)
-	$(COMPOSE) restart $(SERVICE)
-
-logs: ## Tail logs (or specific SERVICE=name)
-	$(COMPOSE) logs -f $(SERVICE)
-
-build: ## Build all service images
-	$(COMPOSE) build
-
-build-service: ## Build single service (SERVICE=auth)
-	$(COMPOSE) build $(SERVICE)-service
-
-ps: ## Show container status
-	$(COMPOSE) ps
-
-# ─── Database ────────────────────────────────────
-migrate: ## Run all migrations
-	@for svc in auth course enrollment progress publishing notification analytics; do \
-		echo "=== Migrating $$svc ==="; \
-		$(COMPOSE) exec $$svc-service alembic upgrade head; \
-	done
-
-migrate-service: ## Run migration for single service (SERVICE=auth)
-	$(COMPOSE) exec $(SERVICE)-service alembic upgrade head
-
-migrate-create: ## Create new migration (SERVICE=auth MSG="add users table")
-	$(COMPOSE) exec $(SERVICE)-service alembic revision --autogenerate -m "$(MSG)"
-
-# ─── Kafka ───────────────────────────────────────
-kafka-topics: ## Create Kafka topics
-	$(COMPOSE) exec kafka bash /opt/kafka-topics.sh
-
-kafka-list: ## List Kafka topics
-	$(COMPOSE) exec kafka kafka-topics --bootstrap-server localhost:29092 --list
-
-# ─── Testing ─────────────────────────────────────
-test: ## Run all tests
-	@for svc in auth course enrollment progress publishing ai search notification analytics; do \
-		echo "=== Testing $$svc ==="; \
-		$(COMPOSE) exec $$svc-service pytest tests/ -v; \
-	done
-
-test-service: ## Run tests for single service (SERVICE=auth)
-	$(COMPOSE) exec $(SERVICE)-service pytest tests/ -v
-
-# ─── Seeding ─────────────────────────────────────
-seed: ## Seed development data
-	$(COMPOSE) exec auth-service python -m scripts.seed
-
-# ─── Cleanup ─────────────────────────────────────
-clean: ## Remove all containers and volumes
-	$(COMPOSE) down -v --remove-orphans
-
-reset: ## Full reset: clean + rebuild + migrate + seed
-	$(MAKE) clean
-	$(MAKE) build
-	$(MAKE) up
-	sleep 30  # Wait for services to be healthy
-	$(MAKE) migrate
-	$(MAKE) kafka-topics
-	$(MAKE) seed
+# Maintenance
+make down               # Stop all services
+make clean              # Remove containers + volumes
+make reset              # Full reset: clean → build → start
 ```
 
-## 10. Cross-Platform Development Notes
+### 9.2 Windows (PowerShell — `make.ps1`)
 
-### 10.1 Windows Compatibility
+```powershell
+.\make.ps1 up                                  # Core infra
+.\make.ps1 up-full                             # Everything
+.\make.ps1 start                               # Orchestrated startup
+.\make.ps1 logs -Service auth                  # Tail logs
+.\make.ps1 health                              # Health check
+.\make.ps1 debug-service -Service auth         # Debug with debugpy
+.\make.ps1 test -Service auth                  # Run tests
+.\make.ps1 migrate-create -Service auth -Msg "add users table"
+.\make.ps1 down                                # Stop all
+```
 
-- All scripts use `bash` (available via Git Bash, WSL2, or Docker exec)
-- Docker Compose v2+ required (comes with Docker Desktop)
+## 10. Cross-Platform Development
+
+### 10.1 Windows (Native PowerShell — Recommended)
+
+EduCorp ships PowerShell equivalents of all bash scripts:
+
+| Bash | PowerShell | Purpose |
+|------|-----------|---------|
+| `make <target>` | `.\make.ps1 <target>` | Build/dev commands |
+| `scripts/start-stack.sh` | `scripts/start-stack.ps1` | Orchestrated startup |
+| `scripts/dev-setup.sh` | `scripts/dev-setup.ps1` | First-time setup |
+| `run-app.sh` | `run-app.ps1` | Quick start |
+
+Requirements:
+- Docker Desktop for Windows with Compose v2+
+- PowerShell 7+ (recommended) or Windows PowerShell 5.1
+- No additional tools needed (`make` not required)
+
+### 10.2 Windows (Alternative — WSL2/Git Bash)
+
+- Use the standard `Makefile` and bash scripts
+- Install `make` via `choco install make` or use WSL2 directly
 - Volume mounts use forward slashes
-- `.env` file uses LF line endings (configure `.gitattributes`)
-- Makefile requires `make` (install via `choco install make` or use WSL2)
+- `.env` file uses LF line endings (configured via `.gitattributes`)
 
-### 10.2 Linux Compatibility
+### 10.3 Linux/macOS
 
-- Docker Engine + Docker Compose plugin
-- No special considerations — native support
+- Docker Engine + Docker Compose plugin (or Docker Desktop)
+- GNU Make (pre-installed on most systems)
 - For rootless Docker: ensure volume permissions match UID
 
-### 10.3 `.gitattributes`
+### 10.4 `.gitattributes`
 
 ```
 * text=auto eol=lf
 *.sh text eol=lf
+*.ps1 text eol=crlf
 *.yml text eol=lf
 *.yaml text eol=lf
 Makefile text eol=lf
@@ -883,7 +896,48 @@ Makefile text eol=lf
 *.py text eol=lf
 ```
 
-## 11. Resource Requirements (Development)
+## 11. Debugging
+
+### 11.1 Remote Debugging with debugpy
+
+All app services in the `dev` Docker target include `debugpy`. To debug:
+
+```bash
+# Linux/macOS
+make debug-service SERVICE=auth
+
+# Windows
+.\make.ps1 debug-service -Service auth
+```
+
+This restarts the service with `debugpy --listen 0.0.0.0:5678 --wait-for-client`, exposing port 5678 on the host.
+
+**VS Code launch configuration** (`.vscode/launch.json`):
+```json
+{
+  "name": "Attach to Service",
+  "type": "debugpy",
+  "request": "attach",
+  "connect": { "host": "localhost", "port": 5678 },
+  "pathMappings": [
+    { "localRoot": "${workspaceFolder}/services/auth", "remoteRoot": "/app/service" },
+    { "localRoot": "${workspaceFolder}/shared", "remoteRoot": "/app/shared" }
+  ]
+}
+```
+
+### 11.2 Hot Reload
+
+All app services run with `--reload` by default in dev mode. Edit code locally and the service restarts automatically (source directories are bind-mounted).
+
+### 11.3 Container Shell Access
+
+```bash
+make shell SERVICE=auth          # Interactive bash shell in the container
+make exec SERVICE=auth CMD="python -c 'import app; print(app)'"  # Run a command
+```
+
+## 12. Resource Requirements (Development)
 
 | Resource | Minimum | Recommended |
 |----------|---------|-------------|
@@ -891,3 +945,14 @@ Makefile text eol=lf
 | CPU | 4 cores | 8 cores |
 | Disk | 20 GB free | 40 GB free |
 | Docker memory | 6 GB | 10 GB |
+
+### Profile-based resource usage
+
+| Startup Level | Containers | Estimated Memory |
+|--------------|------------|-----------------|
+| `make up` (infra only) | ~6 | ~2–3 GB |
+| `make up-messaging` | ~11 | ~3–4 GB |
+| `make up-app` | ~22 | ~5–7 GB |
+| `make up-full` | ~25 | ~7–9 GB |
+
+Use `docker stats` to monitor live resource usage.

@@ -26,17 +26,18 @@ if (-not (Test-Path -Path ".env" -PathType Leaf)) {
     Write-Host ".env already exists, skipping"
 }
 
-# 2. Build containers
+# 2. Build containers (with BuildKit)
 Write-Host "Building containers..."
-Invoke-NativeCommand -Command "docker" -Arguments @("compose", "build")
+$env:DOCKER_BUILDKIT = "1"
+Invoke-NativeCommand -Command "docker" -Arguments @("compose", "--profile", "full", "build")
 
-# 3. Start infrastructure
+# 3. Start full stack
 Write-Host "Starting all services..."
-Invoke-NativeCommand -Command "docker" -Arguments @("compose", "up", "-d")
+Invoke-NativeCommand -Command "docker" -Arguments @("compose", "--profile", "full", "up", "-d")
 
 # 4. Wait for core infrastructure only
 Write-Host "Waiting for core infrastructure services to become healthy..."
-$monitoredServices = @("postgres", "mongodb", "redis", "qdrant", "minio", "kafka", "rabbitmq", "temporal")
+$monitoredServices = @("postgres", "mongodb", "redis", "qdrant", "minio")
 for ($i = 1; $i -le 60; $i++) {
     $healthy = 0
     $total = 0
@@ -62,23 +63,16 @@ for ($i = 1; $i -le 60; $i++) {
     Start-Sleep -Seconds 5
 }
 
-# 5. Create Kafka topics
-Write-Host "Creating Kafka topics..."
-try {
-    Invoke-NativeCommand -Command "docker" -Arguments @(
-        "compose", "exec", "-T", "kafka", "bash", "/opt/kafka-topics.sh"
-    )
-} catch {
-    Write-Host "Topics may already exist"
-}
-
 Write-Host ""
 Write-Host "=== Setup Complete ==="
-Write-Host "Services:   http://localhost (via Traefik)"
+Write-Host "Frontend:   http://localhost:5173"
+Write-Host "API:        http://localhost (via Traefik)"
 Write-Host "Grafana:    http://localhost:3000 (admin/admin)"
 Write-Host "Temporal:   http://localhost:8088"
 Write-Host "RabbitMQ:   http://localhost:15672 (educorp/educorp_dev)"
 Write-Host "MinIO:      http://localhost:9001 (educorp/educorp_dev)"
 Write-Host "Jaeger:     http://localhost:16686"
 Write-Host "Traefik:    http://localhost:8081"
-Write-Host "Schema Registry: http://localhost:8082"
+Write-Host "Schema Reg: http://localhost:8082"
+Write-Host ""
+Write-Host "Tip: Run '.\make.ps1 health' to check all service endpoints"

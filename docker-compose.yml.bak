@@ -1,14 +1,3 @@
-# docker-compose.yml — EduCorp Development Stack
-#
-# Usage:
-#   docker compose up -d                          → Core infra + gateway only (fast start)
-#   docker compose --profile messaging up -d      → + Kafka, RabbitMQ, Schema Registry
-#   docker compose --profile workflow up -d        → + Temporal
-#   docker compose --profile observability up -d   → + Prometheus, Grafana, Jaeger
-#   docker compose --profile app up -d             → + All application services
-#   docker compose --profile full up -d            → Everything
-#   docker compose --profile debug up -d           → App services with debugpy on 5678+
-
 x-service-defaults: &service-defaults
   restart: unless-stopped
   networks:
@@ -21,55 +10,20 @@ x-python-service: &python-service
   build:
     context: .
     dockerfile: infra/docker/Dockerfile.service
-    target: dev
-  command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/service", "--reload-dir", "/app/shared"]
   volumes:
     - ./shared:/app/shared:ro
 
-x-resource-small: &resource-small
-  deploy:
-    resources:
-      limits:
-        memory: 256M
-        cpus: "0.25"
-
-x-resource-medium: &resource-medium
-  deploy:
-    resources:
-      limits:
-        memory: 512M
-        cpus: "0.50"
-
-x-resource-large: &resource-large
-  deploy:
-    resources:
-      limits:
-        memory: 1G
-        cpus: "0.50"
-
 services:
-  # ─── Core Infrastructure (always starts) ───────────────
+  # ─── Infrastructure ────────────────────────────────────
   postgres:
     image: postgres:16-alpine
-    <<: [*service-defaults, *resource-medium]
+    <<: *service-defaults
     ports:
       - "${POSTGRES_HOST_PORT:-15432}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-educorp}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-educorp_dev}
       POSTGRES_DB: ${POSTGRES_DB:-educorp}
-    command:
-      - postgres
-      - -c
-      - shared_buffers=128MB
-      - -c
-      - work_mem=4MB
-      - -c
-      - maintenance_work_mem=64MB
-      - -c
-      - max_connections=200
-      - -c
-      - log_min_duration_statement=200
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
@@ -77,12 +31,11 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-educorp}"]
       interval: 5s
       timeout: 5s
-      start_period: 10s
       retries: 5
 
   mongodb:
     image: mongo:7
-    <<: [*service-defaults, *resource-medium]
+    <<: *service-defaults
     ports:
       - "27017:27017"
     environment:
@@ -94,7 +47,6 @@ services:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
-      start_period: 10s
       retries: 5
 
   redis:
@@ -102,24 +54,18 @@ services:
     <<: *service-defaults
     ports:
       - "6379:6379"
-    command: redis-server --requirepass ${REDIS_PASSWORD:-educorp_dev} --maxmemory 128mb --maxmemory-policy allkeys-lru --save ""
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: "0.25"
+    command: redis-server --requirepass ${REDIS_PASSWORD:-educorp_dev} --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-educorp_dev}", "ping"]
       interval: 5s
       timeout: 3s
-      start_period: 5s
       retries: 5
 
   qdrant:
     image: qdrant/qdrant:v1.8.0
-    <<: [*service-defaults, *resource-medium]
+    <<: *service-defaults
     ports:
       - "6333:6333"
       - "6334:6334"
@@ -129,12 +75,11 @@ services:
       test: ["CMD-SHELL", "grep -q ':18BD ' /proc/net/tcp /proc/net/tcp6"]
       interval: 10s
       timeout: 5s
-      start_period: 10s
       retries: 5
 
   minio:
     image: minio/minio:latest
-    <<: [*service-defaults, *resource-small]
+    <<: *service-defaults
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -148,61 +93,28 @@ services:
       test: ["CMD", "mc", "ready", "local"]
       interval: 10s
       timeout: 5s
-      start_period: 10s
       retries: 5
-
-  # ─── API Gateway (always starts) ───────────────────────
-  traefik:
-    image: traefik:v3.0
-    <<: *service-defaults
-    ports:
-      - "80:80"
-      - "8081:8080"
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: "0.25"
-    volumes:
-      - ./infra/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-      - ./infra/traefik/dynamic:/etc/traefik/dynamic:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    healthcheck:
-      test: ["CMD", "traefik", "healthcheck"]
-      interval: 15s
-      timeout: 5s
-      start_period: 5s
-      retries: 3
 
   # ─── Messaging ─────────────────────────────────────────
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
     <<: *service-defaults
-    profiles: [messaging, full, debug]
     ports:
       - "2181:2181"
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
-      KAFKA_HEAP_OPTS: "-Xmx128m"
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: "0.25"
     volumes:
       - zookeeper_data:/var/lib/zookeeper/data
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "2181"]
       interval: 5s
       timeout: 3s
-      start_period: 10s
       retries: 5
 
   kafka:
     image: confluentinc/cp-kafka:7.6.0
     <<: *service-defaults
-    profiles: [messaging, full, debug]
     ports:
       - "9092:9092"
       - "29092:29092"
@@ -217,15 +129,6 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
-      KAFKA_HEAP_OPTS: "-Xmx512m -Xms256m"
-      KAFKA_LOG_RETENTION_HOURS: 24
-      KAFKA_LOG_RETENTION_BYTES: 536870912
-      KAFKA_NUM_PARTITIONS: 3
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: "0.50"
     volumes:
       - kafka_data:/var/lib/kafka/data
       - ./infra/kafka/topics.sh:/opt/kafka-topics.sh:ro
@@ -233,39 +136,11 @@ services:
       test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list"]
       interval: 15s
       timeout: 10s
-      start_period: 30s
       retries: 10
-
-  kafka-init:
-    image: confluentinc/cp-kafka:7.6.0
-    profiles: [messaging, full, debug]
-    networks:
-      - educorp
-    depends_on:
-      kafka:
-        condition: service_healthy
-    entrypoint: ["/bin/bash", "-c"]
-    command:
-      - |
-        echo "Creating Kafka topics..."
-        for topic in \
-          auth.lifecycle course.lifecycle enrollment.lifecycle \
-          progress.lifecycle publishing.lifecycle notification.lifecycle \
-          analytics.lifecycle auth.lifecycle.dlq course.lifecycle.dlq \
-          enrollment.lifecycle.dlq progress.lifecycle.dlq \
-          publishing.lifecycle.dlq notification.lifecycle.dlq \
-          analytics.lifecycle.dlq; do
-          kafka-topics --bootstrap-server kafka:29092 \
-            --create --if-not-exists \
-            --topic "$$topic" --partitions 3 --replication-factor 1 2>/dev/null
-        done
-        echo "All Kafka topics ready."
-    restart: "no"
 
   schema-registry:
     image: confluentinc/cp-schema-registry:7.6.0
     <<: *service-defaults
-    profiles: [messaging, full, debug]
     ports:
       - "8082:8081"
     depends_on:
@@ -274,48 +149,28 @@ services:
     environment:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:29092
-      SCHEMA_REGISTRY_HEAP_OPTS: "-Xmx128m"
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: "0.25"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8081/subjects || exit 1"]
-      interval: 10s
-      timeout: 5s
-      start_period: 15s
-      retries: 5
 
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
     <<: *service-defaults
-    profiles: [messaging, full, debug]
     ports:
       - "5672:5672"
       - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-educorp}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-educorp_dev}
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: "0.25"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
       timeout: 5s
-      start_period: 15s
       retries: 5
 
   # ─── Workflow Engine ───────────────────────────────────
   temporal:
     image: temporalio/auto-setup:1.24.2
-    <<: [*service-defaults, *resource-medium]
-    profiles: [workflow, full, debug]
+    <<: *service-defaults
     ports:
       - "7233:7233"
     environment:
@@ -337,7 +192,6 @@ services:
   temporal-init:
     image: temporalio/auto-setup:1.24.2
     <<: *service-defaults
-    profiles: [workflow, full, debug]
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -356,14 +210,8 @@ services:
   temporal-ui:
     image: temporalio/ui:2.26.2
     <<: *service-defaults
-    profiles: [workflow, full, debug]
     ports:
       - "8088:8080"
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: "0.25"
     environment:
       TEMPORAL_ADDRESS: temporal:7233
     depends_on:
@@ -373,8 +221,7 @@ services:
   # ─── Observability ─────────────────────────────────────
   prometheus:
     image: prom/prometheus:v2.51.0
-    <<: [*service-defaults, *resource-small]
-    profiles: [observability, full, debug]
+    <<: *service-defaults
     ports:
       - "9090:9090"
     volumes:
@@ -382,13 +229,11 @@ services:
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.retention.time=7d'
-      - '--storage.tsdb.retention.size=1GB'
+      - '--storage.tsdb.retention.time=30d'
 
   grafana:
     image: grafana/grafana:10.4.0
-    <<: [*service-defaults, *resource-small]
-    profiles: [observability, full, debug]
+    <<: *service-defaults
     ports:
       - "3000:3000"
     environment:
@@ -404,36 +249,26 @@ services:
 
   jaeger:
     image: jaegertracing/all-in-one:1.55
-    <<: [*service-defaults, *resource-small]
-    profiles: [observability, full, debug]
+    <<: *service-defaults
     ports:
       - "16686:16686"
       - "4317:4317"
       - "4318:4318"
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
-      SPAN_STORAGE_TYPE: "badger"
-      BADGER_EPHEMERAL: "false"
-      BADGER_DIRECTORY_VALUE: "/badger/data"
-      BADGER_DIRECTORY_KEY: "/badger/key"
-    volumes:
-      - jaeger_data:/badger
 
   # ─── Frontend ───────────────────────────────────────────
   frontend:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
-    <<: [*service-defaults, *resource-small]
-    profiles: [app, full, debug]
+    <<: *service-defaults
     ports:
       - "5173:5173"
     environment:
       API_PROXY_TARGET: "http://traefik"
     volumes:
-      - ./apps/web/src:/app/src
-      - ./apps/web/public:/app/public
-      - ./apps/web/index.html:/app/index.html
+      - ./apps/web:/app
       - frontend_node_modules:/app/node_modules
     depends_on:
       - traefik
@@ -443,14 +278,29 @@ services:
       - "traefik.http.routers.frontend.entrypoints=web"
       - "traefik.http.services.frontend.loadbalancer.server.port=5173"
 
+  # ─── API Gateway ───────────────────────────────────────
+  traefik:
+    image: traefik:v3.0
+    <<: *service-defaults
+    ports:
+      - "80:80"
+      - "8081:8080"
+    volumes:
+      - ./infra/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./infra/traefik/dynamic:/etc/traefik/dynamic:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
   # ─── Application Services ──────────────────────────────
   auth-service:
     <<: *python-service
-    profiles: [app, full, debug]
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.service
-      target: dev
       args:
         SERVICE_DIR: services/auth
     environment:
@@ -466,11 +316,9 @@ services:
 
   course-service:
     <<: *python-service
-    profiles: [app, full, debug]
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.service
-      target: dev
       args:
         SERVICE_DIR: services/course
     environment:
@@ -490,11 +338,9 @@ services:
 
   enrollment-service:
     <<: *python-service
-    profiles: [app, full, debug]
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.service
-      target: dev
       args:
         SERVICE_DIR: services/enrollment
     environment:
@@ -510,11 +356,9 @@ services:
 
   progress-service:
     <<: *python-service
-    profiles: [app, full, debug]
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.service
-      target: dev
       args:
         SERVICE_DIR: services/progress
     environment:
@@ -530,11 +374,9 @@ services:
 
   publishing-service:
     <<: *python-service
-    profiles: [app, full, debug]
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.service
-      target: dev
       args:
         SERVICE_DIR: services/publishing
     environment:
@@ -549,22 +391,18 @@ services:
         condition: service_healthy
       temporal:
         condition: service_healthy
-        required: false
       qdrant:
         condition: service_healthy
       minio:
         condition: service_healthy
       kafka:
         condition: service_healthy
-        required: false
 
   publishing-worker:
     <<: *python-service
-    profiles: [app, full, debug]
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.service
-      target: dev
       args:
         SERVICE_DIR: services/publishing
     environment:
@@ -578,7 +416,6 @@ services:
         condition: service_healthy
       temporal:
         condition: service_healthy
-        required: false
       qdrant:
         condition: service_healthy
       minio:
@@ -586,11 +423,9 @@ services:
 
   ai-service:
     <<: *python-service
-    profiles: [app, full, debug]
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.service
-      target: dev
       args:
         SERVICE_DIR: services/ai
     environment:
@@ -608,11 +443,9 @@ services:
 
   search-service:
     <<: *python-service
-    profiles: [app, full, debug]
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.service
-      target: dev
       args:
         SERVICE_DIR: services/search
     environment:
@@ -630,11 +463,9 @@ services:
 
   notification-service:
     <<: *python-service
-    profiles: [app, full, debug]
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.service
-      target: dev
       args:
         SERVICE_DIR: services/notification
     environment:
@@ -649,18 +480,14 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-        required: false
       kafka:
         condition: service_healthy
-        required: false
 
   notification-worker:
     <<: *python-service
-    profiles: [app, full, debug]
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.service
-      target: dev
       args:
         SERVICE_DIR: services/notification
     environment:
@@ -672,17 +499,14 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-        required: false
       postgres:
         condition: service_healthy
 
   analytics-service:
     <<: *python-service
-    profiles: [app, full, debug]
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.service
-      target: dev
       args:
         SERVICE_DIR: services/analytics
     environment:
@@ -697,7 +521,6 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
-        required: false
 
 volumes:
   postgres_data:
@@ -710,7 +533,6 @@ volumes:
   rabbitmq_data:
   prometheus_data:
   grafana_data:
-  jaeger_data:
   frontend_node_modules:
 
 networks:

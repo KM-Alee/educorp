@@ -1,40 +1,56 @@
+# syntax=docker/dockerfile:1
 # infra/docker/Dockerfile.service
-# Multi-stage build for all Python services
+#
+# Targets:
+#   runtime  -- Production-ready minimal image (default)
+#   dev      -- Development with hot-reload + debugpy
 
+# -- Base: minimal runtime dependencies only ------
 FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Install system deps needed by common libraries
+# Runtime-only system deps (no build-essential)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
+    libpq5 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# ───────────────────────────────────────────────────
-FROM base AS builder
+# -- Builder: compile wheels with build deps ------
+FROM python:3.12-slim AS builder
 
-# Install uv for fast dependency management
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Build dependencies only in this stage
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Fast dependency management
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Install shared library
-COPY shared/ /app/shared/
-RUN cd /app/shared && uv pip install --system -e .
+# Install shared library first (changes less often = better cache)
+COPY shared/pyproject.toml /app/shared/pyproject.toml
+COPY shared/educorp_common/ /app/shared/educorp_common/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    cd /app/shared && uv pip install --system .
 
-# Install service dependencies
+# Install service deps (cached by pyproject.toml hash)
 ARG SERVICE_DIR
 COPY ${SERVICE_DIR}/pyproject.toml ${SERVICE_DIR}/uv.lock* /app/service/
-RUN cd /app/service && uv pip install --system -e . 2>/dev/null || uv pip install --system .
+RUN --mount=type=cache,target=/root/.cache/uv \
+    cd /app/service && uv pip install --system . 2>/dev/null || \
+    uv pip install --system -r /dev/null
 
+# Copy service code last (changes most often)
 COPY ${SERVICE_DIR}/ /app/service/
 
-# ───────────────────────────────────────────────────
+# -- Runtime: production image --------------------
 FROM base AS runtime
 
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
@@ -43,13 +59,37 @@ COPY --from=builder /app/shared /app/shared
 COPY --from=builder /app/service /app/service
 
 WORKDIR /app/service
-
 ENV PYTHONPATH="/app/shared:/app/service"
 
-# Non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 USER appuser
 
 EXPOSE 8000
 
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8000/health/live || exit 1
+
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+
+# -- Dev: hot-reload + remote debugging -----------
+FROM base AS dev
+
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+COPY --from=builder /app/shared /app/shared
+COPY --from=builder /app/service /app/service
+
+WORKDIR /app/service
+ENV PYTHONPATH="/app/shared:/app/service"
+
+# Dev tools: debugpy for remote debugging, watchfiles for fast reload
+RUN pip install --no-cache-dir debugpy watchfiles
+
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+USER appuser
+
+EXPOSE 8000
+# debugpy port
+EXPOSE 5678
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/service", "--reload-dir", "/app/shared"]
