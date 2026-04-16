@@ -18,6 +18,8 @@ from app.schemas.version import (
     PublishingStepOut,
     PublishingVersionOut,
 )
+from app.services.course_activation_client import CourseActivationClient
+from app.services.qdrant_service import QdrantService
 from app.services.artifact_storage_service import ArtifactStorageService
 from app.services.version_service import PublishingVersionService
 from app.workflows.publish_course import PublishCourseWorkflow
@@ -300,5 +302,64 @@ async def cancel_version(
             workflow_id=version.workflow_id,
             message="Publishing cancelled",
         ),
+        meta=_meta(),
+    )
+
+
+@router.post(
+    "/versions/{version_id}/activate",
+    response_model=SuccessResponse[PublishVersionResponse],
+)
+async def activate_version(
+    version_id: UUID,
+    _current_user: CurrentUser = Depends(require_roles("instructor", "admin")),
+    session: AsyncSession = Depends(get_session),
+) -> SuccessResponse[PublishVersionResponse]:
+    svc = PublishingVersionService(session)
+    version, _superseded_id = await svc.activate_version(version_id=version_id)
+    await session.commit()
+
+    activation_client = CourseActivationClient()
+    await activation_client.activate_course(
+        course_id=version.course_id, version_id=version.id
+    )
+    await activation_client.notify_search_activated(course_id=version.course_id)
+
+    return SuccessResponse(
+        data=PublishVersionResponse(
+            version_id=version.id,
+            version_number=version.version_number,
+            status=version.status,
+            approval_state=version.approval_state,
+            workflow_id=version.workflow_id,
+            message="Version activated. Course is now live.",
+        ),
+        meta=_meta(),
+    )
+
+
+@router.post(
+    "/internal/cleanup/superseded-vectors",
+    response_model=SuccessResponse[dict],
+)
+async def cleanup_superseded_vectors(
+    _current_user: CurrentUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+) -> SuccessResponse[dict]:
+    svc = PublishingVersionService(session)
+    superseded = await svc.get_superseded_versions_for_cleanup(
+        retention_days=settings.superseded_vector_retention_days
+    )
+
+    qdrant = QdrantService()
+    deleted_counts: list[dict] = []
+    for version in superseded:
+        count = await qdrant.delete_version_points(str(version.id))
+        deleted_counts.append(
+            {"version_id": str(version.id), "course_id": str(version.course_id), "points_deleted": count}
+        )
+
+    return SuccessResponse(
+        data={"cleaned_versions": len(superseded), "details": deleted_counts},
         meta=_meta(),
     )

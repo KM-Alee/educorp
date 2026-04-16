@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -55,3 +56,30 @@ class CourseVersionRepository:
             return None
         version.run_id = run_id
         return await self.update(version)
+
+    async def get_active_version_id_for_course(
+        self, course_id: UUID, *, exclude_version_id: UUID
+    ) -> UUID | None:
+        """Return the ID of any READY version (other than the given one) for a course."""
+        result = await self._session.execute(
+            select(CourseVersion.id).where(
+                CourseVersion.course_id == course_id,
+                CourseVersion.status == "READY",
+                CourseVersion.activated_at.is_not(None),
+                CourseVersion.id != exclude_version_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_superseded_before_retention(
+        self, *, retention_days: int
+    ) -> list[CourseVersion]:
+        """Return SUPERSEDED versions whose superseded_at is older than retention_days."""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        result = await self._session.execute(
+            select(CourseVersion).where(
+                CourseVersion.status == "SUPERSEDED",
+                CourseVersion.superseded_at <= cutoff,
+            )
+        )
+        return list(result.scalars().all())

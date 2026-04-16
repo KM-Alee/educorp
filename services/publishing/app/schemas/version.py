@@ -103,3 +103,20 @@ class PublishingVersionOut(BaseModel):
     superseded_at: datetime | None
     steps: list[PublishingStepOut] = Field(default_factory=list)
     artifacts: list[PublishingArtifactOut] = Field(default_factory=list)
+
+    @property
+    def display_status(self) -> str:
+        """Human-readable operator state derived from status + approval fields."""
+        if self.status == "SUPERSEDED":
+            return "SUPERSEDED"
+        if self.status in {"FAILED", "CANCELLED"}:
+            return self.status
+        if self.status == "REVIEW_REQUIRED":
+            if self.approval_state == "APPROVED":
+                return "APPROVED"
+            return "REVIEW_REQUIRED"
+        if self.status == "PUBLISHING":
+            return "PUBLISHING"
+        if self.status == "READY":
+            return "ACTIVATED" if self.activated_at is not None else "READY"
+        return self.status

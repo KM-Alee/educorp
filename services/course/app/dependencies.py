@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from miniopy_async import Minio
+from fastapi import Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from educorp_common.auth.dependencies import (
@@ -64,6 +65,15 @@ def get_minio() -> Minio:
     return _minio_client
 
 
+async def require_internal_service(
+    x_internal_service_token: str | None = Header(default=None, alias="X-Internal-Service-Token"),
+) -> None:
+    """Require a valid internal service token for service-to-service calls."""
+    from app.config import settings
+    if x_internal_service_token != settings.internal_service_token:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
 __all__ = [
     "CurrentUser",
     "get_current_user",
@@ -71,6 +81,7 @@ __all__ = [
     "get_minio",
     "get_mongo_db",
     "get_session",
+    "require_internal_service",
     "require_roles",
     "set_engine",
     "set_minio",

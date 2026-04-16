@@ -18,11 +18,16 @@ from app.repositories.publishing_step_repository import PublishingStepRepository
 from app.repositories.version_artifact_repository import VersionArtifactRepository
 from app.repositories.version_manifest_repository import VersionManifestRepository
 from app.services.artifact_storage_service import ArtifactStorageService, read_object
-from app.services.chunking_service import ChunkingService
+from app.services.chunking_service import ChunkingService, ContentChunk
 from app.services.embedding_service import EmbeddingService
 from app.services.extraction_service import ExtractionService
-from app.services.qdrant_service import QdrantService
-from app.workflows.types import ArtifactActivityInput, IndexArtifactsInput, VersionFailureInput
+from app.services.qdrant_service import QdrantService, build_qdrant_point
+from app.workflows.types import (
+    ArtifactActivityInput,
+    IndexArtifactsInput,
+    QualityReportInput,
+    VersionFailureInput,
+)
 from educorp_common.errors import EduCorpError, NotFoundError, ValidationError
 
 STEP_PREFLIGHT = "preflight_review"
@@ -30,6 +35,7 @@ STEP_EXTRACT = "extract_text"
 STEP_CHUNK = "chunk_content"
 STEP_EMBED = "generate_embeddings"
 STEP_INDEX = "index_qdrant"
+STEP_QUALITY = "generate_quality_report"
 STEP_FINALIZE = "finalize_version"
 
 
@@ -47,8 +53,9 @@ class PublishingActivities:
         self._artifact_storage = ArtifactStorageService(minio_client)
         self._extractor = ExtractionService()
         self._chunker = ChunkingService(
-            chunk_size=settings.chunk_size,
-            chunk_overlap=settings.chunk_overlap,
+            chunk_target_tokens=settings.chunk_target_tokens,
+            chunk_max_tokens=settings.chunk_max_tokens,
+            chunk_overlap_tokens=settings.chunk_overlap_tokens,
         )
 
     @activity.defn(name=STEP_PREFLIGHT)
@@ -174,6 +181,12 @@ class PublishingActivities:
 
     @activity.defn(name=STEP_EXTRACT)
     async def extract_text(self, version_id: UUID) -> UUID:
+        """
+        Run the full staged extraction pipeline for every asset in the manifest.
+
+        Produces a ``CANONICAL_PAGES`` artifact and per-asset MinIO artifacts.
+        Returns the canonical pages artifact UUID.
+        """
         async with self._session_factory() as session:
             await _mark_step(session, version_id, STEP_EXTRACT, "RUNNING")
             try:
@@ -181,21 +194,83 @@ class PublishingActivities:
                 artifact_repo = VersionArtifactRepository(session)
                 version_repo = CourseVersionRepository(session)
 
+                manifest_modules = await manifest_repo.list_modules_for_version(version_id)
+                module_titles: dict[str, str] = {
+                    str(m.module_id): m.title for m in manifest_modules
+                }
+
                 version = await version_repo.get_by_id(version_id)
                 if version is None:
                     raise NotFoundError("Publishing version not found")
 
                 assets = await manifest_repo.list_assets_for_version(version_id)
-                extracted_records: list[dict[str, object]] = []
+                all_canonical_pages: list[dict[str, object]] = []
+                agg_stats: dict[str, int] = {
+                    "total_pages": 0,
+                    "ocr_pages": 0,
+                    "nanogpt_pages": 0,
+                    "low_confidence_pages": 0,
+                    "total_assets": len(assets),
+                }
+                budget_warnings: list[str] = []
+
                 for asset in assets:
-                    data = await self._read_object(asset.storage_path)
-                    extracted_records.append(
-                        {
-                            "asset_id": str(asset.asset_id),
-                            "module_id": str(asset.module_id),
-                            "asset_type": asset.asset_type,
-                            "text": self._extractor.extract_text(asset.asset_type, data),
-                        }
+                    raw_bytes = await self._read_object(asset.storage_path)
+                    module_title = module_titles.get(str(asset.module_id), "")
+
+                    records, asset_stats = await self._extractor.extract_canonical_pages(
+                        asset_type=asset.asset_type,
+                        data=raw_bytes,
+                        asset_id=str(asset.asset_id),
+                        version_id=str(version_id),
+                        module_id=str(asset.module_id),
+                        module_title=module_title,
+                        asset_title=asset.title,
+                    )
+
+                    # Detect per-asset visual enrichment budget overruns
+                    max_pages = settings.visual_enrichment_max_pages_per_asset
+                    max_pct = settings.visual_enrichment_max_percent_per_asset
+                    total = asset_stats["total_pages"]
+                    nanogpt = asset_stats["nanogpt_pages"]
+                    if total > 0 and (nanogpt > max_pages or nanogpt / total > max_pct):
+                        budget_warnings.append(
+                            f"Asset {asset.file_name}: {nanogpt}/{total} pages sent to NanoGPT "
+                            f"(limit: {max_pages} pages / {int(max_pct * 100)}%)"
+                        )
+
+                    # Save per-asset canonical pages to MinIO for auditability
+                    await self._artifact_storage.put_json(
+                        f"versions/{version_id}/extraction/pages/{asset.asset_id}/canonical.json",
+                        [r.to_dict() for r in records],
+                    )
+
+                    for key in ("total_pages", "ocr_pages", "nanogpt_pages", "low_confidence_pages"):
+                        agg_stats[key] = agg_stats[key] + asset_stats.get(key, 0)
+
+                    all_canonical_pages.extend(r.to_dict() for r in records)
+
+                # Gate: if budget was exceeded, return to REVIEW_REQUIRED
+                if budget_warnings:
+                    version.status = "REVIEW_REQUIRED"
+                    existing_summary = version.preflight_summary_json or {}
+                    version.preflight_summary_json = {
+                        **existing_summary,
+                        "budget_warnings": budget_warnings,
+                    }
+                    await version_repo.update(version)
+                    await _mark_step(
+                        session,
+                        version_id,
+                        STEP_EXTRACT,
+                        "FAILED",
+                        error_message="Visual enrichment budget exceeded; operator review required",
+                    )
+                    await session.commit()
+                    raise EduCorpError(
+                        code="BUDGET_EXCEEDED",
+                        message="Visual enrichment budget exceeded",
+                        status_code=400,
                     )
 
                 artifact = await _store_artifact(
@@ -203,34 +278,30 @@ class PublishingActivities:
                     artifact_storage=self._artifact_storage,
                     artifact_repo=artifact_repo,
                     version_id=version_id,
-                    artifact_type="EXTRACTED_TEXT",
-                    object_path=f"versions/{version_id}/artifacts/extracted.json",
-                    payload=extracted_records,
-                    metadata={"total_assets": len(extracted_records)},
+                    artifact_type="CANONICAL_PAGES",
+                    object_path=f"versions/{version_id}/extraction/canonical_pages.json",
+                    payload=all_canonical_pages,
+                    metadata=agg_stats,
                 )
 
                 await _mark_step(
-                    session,
-                    version_id,
-                    STEP_EXTRACT,
-                    "COMPLETED",
-                    metadata={"total_assets": len(extracted_records)},
+                    session, version_id, STEP_EXTRACT, "COMPLETED", metadata=agg_stats
                 )
                 await session.commit()
                 return artifact.id
             except Exception as exc:
                 await _mark_step(
-                    session,
-                    version_id,
-                    STEP_EXTRACT,
-                    "FAILED",
-                    error_message=str(exc),
+                    session, version_id, STEP_EXTRACT, "FAILED", error_message=str(exc)
                 )
                 await session.commit()
                 raise
 
     @activity.defn(name=STEP_CHUNK)
     async def chunk_content(self, payload: ArtifactActivityInput) -> UUID:
+        """
+        Load canonical pages and produce provenance-rich chunks.
+        Persists chunk references to the DB and saves chunks.json to MinIO.
+        """
         async with self._session_factory() as session:
             await _mark_step(session, payload.version_id, STEP_CHUNK, "RUNNING")
             try:
@@ -238,58 +309,43 @@ class PublishingActivities:
                 version_repo = CourseVersionRepository(session)
                 chunk_repo = ChunkRepository(session)
 
-                extracted_artifact = await artifact_repo.get_by_id(payload.artifact_id)
-                if extracted_artifact is None:
-                    raise NotFoundError("Publishing artifact not found")
+                canon_artifact = await artifact_repo.get_by_id(payload.artifact_id)
+                if canon_artifact is None:
+                    raise NotFoundError("Canonical pages artifact not found")
 
                 version = await version_repo.get_by_id(payload.version_id)
                 if version is None:
                     raise NotFoundError("Publishing version not found")
 
-                extracted_records = await self._artifact_storage.get_json(
-                    extracted_artifact.object_path
-                )
+                raw_pages = await self._artifact_storage.get_json(canon_artifact.object_path)
+                canon_pages = [_dict_to_canonical(p) for p in raw_pages]
+
                 await chunk_repo.delete_for_version(payload.version_id)
 
-                chunk_records: list[dict[str, object]] = []
-                db_chunks: list[Chunk] = []
-                for asset in extracted_records:
-                    asset_id = UUID(str(asset["asset_id"]))
-                    module_id = UUID(str(asset["module_id"]))
-                    text = str(asset["text"])
-                    for chunk in self._chunker.split(text):
-                        chunk_id = uuid5(payload.version_id, f"{asset_id}:{chunk.index}")
-                        preview = chunk.text[:500] if chunk.text else None
-                        chunk_records.append(
-                            {
-                                "chunk_id": str(chunk_id),
-                                "version_id": str(payload.version_id),
-                                "course_id": str(version.course_id),
-                                "module_id": str(module_id),
-                                "asset_id": str(asset_id),
-                                "chunk_index": chunk.index,
-                                "text": chunk.text,
-                                "char_start": chunk.char_start,
-                                "char_end": chunk.char_end,
-                                "token_count": chunk.token_count,
-                                "text_preview": preview,
-                            }
-                        )
-                        db_chunks.append(
-                            Chunk(
-                                id=chunk_id,
-                                version_id=payload.version_id,
-                                course_id=version.course_id,
-                                module_id=module_id,
-                                asset_id=asset_id,
-                                chunk_index=chunk.index,
-                                char_start=chunk.char_start,
-                                char_end=chunk.char_end,
-                                token_count=chunk.token_count,
-                                text_preview=preview,
-                            )
-                        )
+                chunks, chunk_stats = self._chunker.split_pages(
+                    canon_pages, course_id=str(version.course_id)
+                )
 
+                chunk_records = [_chunk_to_dict(c) for c in chunks]
+
+                db_chunks = [
+                    Chunk(
+                        id=uuid5(
+                            payload.version_id,
+                            f"{c.asset_id}:{c.page_or_slide_number}:{c.chunk_index}",
+                        ),
+                        version_id=payload.version_id,
+                        course_id=version.course_id,
+                        module_id=UUID(c.module_id),
+                        asset_id=UUID(c.asset_id),
+                        chunk_index=c.chunk_index,
+                        char_start=None,
+                        char_end=None,
+                        token_count=c.token_estimate,
+                        text_preview=c.text_preview,
+                    )
+                    for c in chunks
+                ]
                 await chunk_repo.create_many(db_chunks)
                 version.total_chunks = len(chunk_records)
                 await version_repo.update(version)
@@ -300,50 +356,61 @@ class PublishingActivities:
                     artifact_repo=artifact_repo,
                     version_id=payload.version_id,
                     artifact_type="CHUNKS",
-                    object_path=f"versions/{payload.version_id}/artifacts/chunks.json",
+                    object_path=f"versions/{payload.version_id}/chunks/chunks.json",
                     payload=chunk_records,
-                    metadata={"total_chunks": len(chunk_records)},
+                    metadata={
+                        "total_chunks": chunk_stats.total_chunks,
+                        "duplicate_chunks_removed": chunk_stats.duplicate_chunks_removed,
+                    },
                 )
 
                 await _mark_step(
-                    session,
-                    payload.version_id,
-                    STEP_CHUNK,
-                    "COMPLETED",
-                    metadata={"total_chunks": len(chunk_records)},
+                    session, payload.version_id, STEP_CHUNK, "COMPLETED",
+                    metadata={
+                        "total_chunks": chunk_stats.total_chunks,
+                        "duplicate_chunks_removed": chunk_stats.duplicate_chunks_removed,
+                    },
                 )
                 await session.commit()
                 return artifact.id
             except Exception as exc:
                 await _mark_step(
-                    session,
-                    payload.version_id,
-                    STEP_CHUNK,
-                    "FAILED",
-                    error_message=str(exc),
+                    session, payload.version_id, STEP_CHUNK, "FAILED", error_message=str(exc)
                 )
                 await session.commit()
                 raise
 
     @activity.defn(name=STEP_EMBED)
     async def generate_embeddings(self, payload: ArtifactActivityInput) -> UUID:
+        """Load chunks and generate embeddings with Redis caching."""
         async with self._session_factory() as session:
             await _mark_step(session, payload.version_id, STEP_EMBED, "RUNNING")
             try:
                 artifact_repo = VersionArtifactRepository(session)
                 chunk_artifact = await artifact_repo.get_by_id(payload.artifact_id)
                 if chunk_artifact is None:
-                    raise NotFoundError("Publishing artifact not found")
+                    raise NotFoundError("Chunks artifact not found")
 
-                chunk_records = await self._artifact_storage.get_json(chunk_artifact.object_path)
-                texts = [str(chunk["text"]) for chunk in chunk_records]
-                embeddings = await EmbeddingService().embed_texts(texts)
+                chunk_records: list[dict[str, object]] = await self._artifact_storage.get_json(
+                    chunk_artifact.object_path
+                )
+                texts = [str(c["text"]) for c in chunk_records]
+                hashes = [str(c["chunk_hash"]) for c in chunk_records]
+
+                vectors, reused, created = await EmbeddingService().embed_texts(
+                    texts, chunk_hashes=hashes
+                )
+
+                if len(vectors) != len(chunk_records):
+                    raise EduCorpError(
+                        code="AI_PROVIDER_ERROR",
+                        message="Embedding count does not match chunk count",
+                        status_code=502,
+                    )
+
                 embedding_records = [
-                    {
-                        "chunk_id": chunk["chunk_id"],
-                        "vector": vector,
-                    }
-                    for chunk, vector in zip(chunk_records, embeddings, strict=False)
+                    {"chunk_hash": chunk["chunk_hash"], "vector": vector}
+                    for chunk, vector in zip(chunk_records, vectors, strict=False)
                 ]
 
                 artifact = await _store_artifact(
@@ -354,74 +421,135 @@ class PublishingActivities:
                     artifact_type="EMBEDDINGS",
                     object_path=f"versions/{payload.version_id}/artifacts/embeddings.json",
                     payload=embedding_records,
-                    metadata={"total_embeddings": len(embedding_records)},
+                    metadata={
+                        "total_embeddings": len(embedding_records),
+                        "embeddings_reused": reused,
+                        "embeddings_created": created,
+                    },
                 )
 
                 await _mark_step(
-                    session,
-                    payload.version_id,
-                    STEP_EMBED,
-                    "COMPLETED",
-                    metadata={"total_embeddings": len(embedding_records)},
+                    session, payload.version_id, STEP_EMBED, "COMPLETED",
+                    metadata={
+                        "total_embeddings": len(embedding_records),
+                        "embeddings_reused": reused,
+                        "embeddings_created": created,
+                    },
                 )
                 await session.commit()
                 return artifact.id
             except Exception as exc:
                 await _mark_step(
-                    session,
-                    payload.version_id,
-                    STEP_EMBED,
-                    "FAILED",
-                    error_message=str(exc),
+                    session, payload.version_id, STEP_EMBED, "FAILED", error_message=str(exc)
                 )
                 await session.commit()
                 raise
 
     @activity.defn(name=STEP_INDEX)
     async def index_qdrant(self, payload: IndexArtifactsInput) -> None:
+        """Version-safe Qdrant upsert with full payload fields."""
         async with self._session_factory() as session:
             await _mark_step(session, payload.version_id, STEP_INDEX, "RUNNING")
             try:
                 artifact_repo = VersionArtifactRepository(session)
                 chunks_artifact = await artifact_repo.get_by_id(payload.chunks_artifact_id)
-                embeddings_artifact = await artifact_repo.get_by_id(payload.embeddings_artifact_id)
+                embeddings_artifact = await artifact_repo.get_by_id(
+                    payload.embeddings_artifact_id
+                )
                 if chunks_artifact is None or embeddings_artifact is None:
                     raise NotFoundError("Publishing artifacts not found")
 
-                chunk_records = await self._artifact_storage.get_json(chunks_artifact.object_path)
-                embedding_records = await self._artifact_storage.get_json(
+                chunk_records: list[dict[str, object]] = await self._artifact_storage.get_json(
+                    chunks_artifact.object_path
+                )
+                embedding_records: list[dict[str, object]] = await self._artifact_storage.get_json(
                     embeddings_artifact.object_path
                 )
-                if len(chunk_records) != len(embedding_records):
-                    raise EduCorpError(
-                        code="AI_PROVIDER_ERROR",
-                        message="Embedding count does not match chunk count",
-                        status_code=502,
-                    )
+
+                # Build embedding lookup by chunk_hash for safe pairing
+                embed_by_hash: dict[str, list[float]] = {
+                    str(e["chunk_hash"]): e["vector"]  # type: ignore[assignment]
+                    for e in embedding_records
+                }
+
+                points = [
+                    build_qdrant_point(chunk, embed_by_hash[str(chunk["chunk_hash"])])
+                    for chunk in chunk_records
+                    if str(chunk["chunk_hash"]) in embed_by_hash
+                ]
 
                 qdrant = QdrantService()
-                qdrant.ensure_collection()
-                points = [
-                    _build_point(chunk, embedding["vector"])
-                    for chunk, embedding in zip(chunk_records, embedding_records, strict=False)
-                ]
-                qdrant.upsert(points)
+                qdrant.upsert_version_safe(str(payload.version_id), points)
 
                 await _mark_step(
-                    session,
-                    payload.version_id,
-                    STEP_INDEX,
-                    "COMPLETED",
+                    session, payload.version_id, STEP_INDEX, "COMPLETED",
                     metadata={"total_points": len(points)},
                 )
                 await session.commit()
             except Exception as exc:
                 await _mark_step(
-                    session,
-                    payload.version_id,
-                    STEP_INDEX,
-                    "FAILED",
-                    error_message=str(exc),
+                    session, payload.version_id, STEP_INDEX, "FAILED", error_message=str(exc)
+                )
+                await session.commit()
+                raise
+
+    @activity.defn(name=STEP_QUALITY)
+    async def generate_quality_report(self, payload: QualityReportInput) -> UUID:
+        """Aggregate stats from extraction, chunking, and embedding into a quality report."""
+        async with self._session_factory() as session:
+            await _mark_step(session, payload.version_id, STEP_QUALITY, "RUNNING")
+            try:
+                artifact_repo = VersionArtifactRepository(session)
+
+                ext_a = await artifact_repo.get_by_id(payload.extraction_artifact_id)
+                chk_a = await artifact_repo.get_by_id(payload.chunks_artifact_id)
+                emb_a = await artifact_repo.get_by_id(payload.embeddings_artifact_id)
+
+                ext_meta = (ext_a.artifact_metadata or {}) if ext_a else {}
+                chk_meta = (chk_a.artifact_metadata or {}) if chk_a else {}
+                emb_meta = (emb_a.artifact_metadata or {}) if emb_a else {}
+
+                report: dict[str, object] = {
+                    "version_id": str(payload.version_id),
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    "total_assets": ext_meta.get("total_assets", 0),
+                    "total_pages": ext_meta.get("total_pages", 0),
+                    "ocr_pages_count": ext_meta.get("ocr_pages", 0),
+                    "nanogpt_pages_count": ext_meta.get("nanogpt_pages", 0),
+                    "low_confidence_pages_count": ext_meta.get("low_confidence_pages", 0),
+                    "total_chunks": chk_meta.get("total_chunks", 0),
+                    "duplicate_chunks_removed": chk_meta.get("duplicate_chunks_removed", 0),
+                    "total_embeddings": emb_meta.get("total_embeddings", 0),
+                    "total_embeddings_reused": emb_meta.get("embeddings_reused", 0),
+                    "total_embeddings_created": emb_meta.get("embeddings_created", 0),
+                    "visual_enrichment_enabled": settings.visual_enrichment_enabled,
+                    "visual_enrichment_max_pages_per_asset": settings.visual_enrichment_max_pages_per_asset,
+                    "ocr_confidence_threshold": settings.ocr_confidence_threshold,
+                    "visual_confidence_threshold": settings.visual_confidence_threshold,
+                    "low_text_threshold_chars": settings.low_text_threshold_chars,
+                    "embedding_model": settings.embedding_model,
+                }
+
+                artifact = await _store_artifact(
+                    session=session,
+                    artifact_storage=self._artifact_storage,
+                    artifact_repo=artifact_repo,
+                    version_id=payload.version_id,
+                    artifact_type="QUALITY_REPORT",
+                    object_path=f"versions/{payload.version_id}/reports/quality-report.json",
+                    payload=report,
+                    metadata={"kind": "quality_report"},
+                )
+
+                await _mark_step(
+                    session, payload.version_id, STEP_QUALITY, "COMPLETED",
+                    metadata={"quality_report_artifact_id": str(artifact.id)},
+                )
+                await session.commit()
+                return artifact.id
+            except Exception as exc:
+                await _mark_step(
+                    session, payload.version_id, STEP_QUALITY, "FAILED", error_message=str(exc)
                 )
                 await session.commit()
                 raise
@@ -486,18 +614,49 @@ class PublishingActivities:
         return await read_object(self._minio, object_path)
 
 
-def _build_point(chunk: dict[str, object], vector: list[float]):
-    from qdrant_client.http import models as qmodels
+# ── Module-level helpers ──────────────────────────────────────────────────────
 
-    payload = {
-        "course_id": str(chunk["course_id"]),
-        "version_id": str(chunk["version_id"]),
-        "module_id": str(chunk["module_id"]),
-        "asset_id": str(chunk["asset_id"]),
-        "chunk_index": chunk["chunk_index"],
-        "text": chunk["text"],
+
+def _dict_to_canonical(d: dict[str, object]):  # type: ignore[return]
+    """Reconstruct a CanonicalPageRecord from its stored dict representation."""
+    from app.services.canonical_builder import build_canonical_page
+
+    return build_canonical_page(
+        version_id=str(d.get("version_id", "")),
+        asset_id=str(d.get("asset_id", "")),
+        source_type=str(d.get("source_type", "")),
+        page_or_slide_number=int(d.get("page_or_slide_number", 1)),
+        module_id=str(d.get("module_id", "")),
+        module_title=str(d.get("module_title", "")),
+        asset_title=str(d.get("asset_title", "")),
+        native_text=str(d.get("native_text", "")),
+        ocr_text=str(d.get("ocr_text", "")),
+        visual_summary=str(d.get("visual_summary", "")),
+        has_visual_summary=bool(d.get("has_visual_summary", False)),
+        text_confidence=float(d.get("text_confidence", 1.0)),
+        visual_confidence=float(d.get("visual_confidence", 0.0)),
+        flags=list(d.get("flags", [])),
+    )
+
+
+def _chunk_to_dict(c: ContentChunk) -> dict[str, object]:
+    return {
+        "chunk_hash": c.chunk_hash,
+        "version_id": c.version_id,
+        "course_id": c.course_id,
+        "module_id": c.module_id,
+        "asset_id": c.asset_id,
+        "page_or_slide_number": c.page_or_slide_number,
+        "module_title": c.module_title,
+        "asset_title": c.asset_title,
+        "source_type": c.source_type,
+        "chunk_index": c.chunk_index,
+        "text": c.text,
+        "quality_score": c.quality_score,
+        "content_sources_used": c.content_sources_used,
+        "token_estimate": c.token_estimate,
+        "text_preview": c.text_preview,
     }
-    return qmodels.PointStruct(id=str(chunk["chunk_id"]), vector=vector, payload=payload)
 
 
 async def _mark_step(

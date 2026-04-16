@@ -13,6 +13,7 @@ from app.dependencies import (
     get_mongo_db,
     get_optional_user,
     get_session,
+    require_internal_service,
     require_roles,
 )
 from app.schemas.course import CourseCreate, CourseListItem, CourseOut, CourseUpdate
@@ -243,7 +244,7 @@ async def publish_course(
 async def activate_course_version(
     course_id: UUID,
     payload: ActivateCourseVersionRequest,
-    _current_user: CurrentUser = Depends(require_roles("admin")),
+    _: None = Depends(require_internal_service),
     session: AsyncSession = Depends(get_session),
 ) -> SuccessResponse[CourseOut]:
     svc = CourseService(session)

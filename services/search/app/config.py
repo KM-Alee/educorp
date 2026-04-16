@@ -18,9 +18,13 @@ class Settings(BaseAppSettings):
     nanogpt_base_url: str = "https://nano-gpt.com/api/v1"
     nanogpt_api_key: str = "change-me"
     nanogpt_model: str = "google/gemma-4-31b-it"
-    openai_base_url: str = "https://api.openai.com/v1"
-    openai_api_key: str = "change-me"
-    openai_embedding_model: str = "text-embedding-3-small"
+    embedding_base_url: str = "https://api.openai.com/v1"
+    embedding_api_key: str = "change-me"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimension: int = 1536
+
+    # Internal service-to-service auth
+    internal_service_token: str = "change-me"
 
 
 settings = Settings()

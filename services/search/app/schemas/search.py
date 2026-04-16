@@ -26,15 +26,18 @@ class SemanticSearchRequest(BaseModel):
 
 
 class SemanticChunkResult(BaseModel):
-    chunk_id: UUID
+    chunk_id: str
+    course_id: UUID
+    version_id: UUID
     text: str
     score: float
     module_id: UUID
     module_title: str | None
     asset_id: UUID
     asset_title: str | None
-    page_number: int | None = None
+    page_or_slide_number: int | None = None
     chunk_index: int
+    quality_score: float | None = None
 
 
 class SemanticSearchResponse(BaseModel):

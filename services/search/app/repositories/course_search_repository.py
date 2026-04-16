@@ -26,12 +26,17 @@ class CourseSearchRepository:
             "c.deleted_at IS NULL",
             "c.visibility = 'PUBLISHED'",
             "v.status = 'READY'",
+            "v.activated_at IS NOT NULL",
         ]
         params: dict[str, object] = {}
 
         if query:
-            filters.append("(c.title ILIKE :like OR c.description ILIKE :like)")
-            params["like"] = f"%{query}%"
+            # PostgreSQL full-text search: rank by title, short_description, tags weight
+            filters.append(
+                "to_tsvector('english', coalesce(c.title,'') || ' ' || coalesce(c.short_description,'') || ' ' || coalesce(array_to_string(c.tags,' '),'')) "
+                "@@ websearch_to_tsquery('english', :query)"
+            )
+            params["query"] = query
         if category:
             filters.append("c.category = :category")
             params["category"] = category
@@ -56,10 +61,24 @@ class CourseSearchRepository:
         params["limit"] = page_size
         params["offset"] = (page - 1) * page_size
 
+        if query:
+            rank_expr = (
+                "ts_rank_cd("
+                "  setweight(to_tsvector('english', coalesce(c.title,'')), 'A') ||"
+                "  setweight(to_tsvector('english', coalesce(c.short_description,'')), 'B') ||"
+                "  setweight(to_tsvector('english', coalesce(array_to_string(c.tags,' '),'')), 'C'),"
+                "  websearch_to_tsquery('english', :query)"
+                ") AS ts_rank"
+            )
+            order_by = "ts_rank DESC, v.activated_at DESC"
+        else:
+            rank_expr = "1.0 AS ts_rank"
+            order_by = "v.activated_at DESC"
+
         data_query = text(
-            "SELECT c.id, c.title, c.short_description, c.category, c.difficulty, c.description "
+            f"SELECT c.id, c.title, c.short_description, c.category, c.difficulty, c.description, {rank_expr} "
             f"{base_from} "
-            "ORDER BY c.created_at DESC "
+            f"ORDER BY {order_by} "
             "LIMIT :limit OFFSET :offset"
         )
         result = await self._session.execute(data_query, params)
@@ -75,6 +94,7 @@ class CourseSearchRepository:
              WHERE c.id = :course_id
                AND c.visibility = 'PUBLISHED'
                AND v.status = 'READY'
+               AND v.activated_at IS NOT NULL
             """
         )
         result = await self._session.execute(query, {"course_id": str(course_id)})

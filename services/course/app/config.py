@@ -27,5 +27,8 @@ class Settings(BaseAppSettings):
     # Publishing service
     publishing_service_url: str = "http://publishing-service:8000/api/v1/publishing"
 
+    # Internal service-to-service auth
+    internal_service_token: str = "change-me"
+
 
 settings = Settings()

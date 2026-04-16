@@ -23,6 +23,7 @@ PUBLISHING_STEPS = [
     "chunk_content",
     "generate_embeddings",
     "index_qdrant",
+    "generate_quality_report",
     "finalize_version",
 ]
 
@@ -219,3 +220,37 @@ class PublishingVersionService:
         await self._versions.update(version)
         await self._steps.mark_skipped_for_version(version_id)
         return version
+
+    async def activate_version(self, *, version_id: UUID) -> tuple[CourseVersion, UUID | None]:
+        """Mark version as activated and supersede any previously active version.
+
+        Returns (activated_version, superseded_version_id | None).
+        """
+        version = await self._versions.get_by_id(version_id)
+        if version is None:
+            raise NotFoundError("Publishing version not found")
+        if version.status != "READY":
+            raise ValidationError("Only READY versions can be activated")
+
+        now = datetime.now(timezone.utc)
+
+        # Find the previously active version for this course to supersede it
+        previous_id = await self._versions.get_active_version_id_for_course(
+            version.course_id, exclude_version_id=version_id
+        )
+        if previous_id is not None:
+            previous = await self._versions.get_by_id(previous_id)
+            if previous is not None:
+                previous.status = "SUPERSEDED"
+                previous.superseded_at = now
+                await self._versions.update(previous)
+
+        version.activated_at = now
+        await self._versions.update(version)
+        return version, previous_id
+
+    async def get_superseded_versions_for_cleanup(
+        self, *, retention_days: int
+    ) -> list[CourseVersion]:
+        """Return SUPERSEDED versions whose superseded_at is older than retention_days."""
+        return await self._versions.list_superseded_before_retention(retention_days=retention_days)

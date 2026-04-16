@@ -13,7 +13,7 @@ from educorp_common.errors import EduCorpError
 
 
 class SemanticSearchService:
-    """Semantic search over READY course chunks."""
+    """Semantic search over PUBLISHED, activated course chunks."""
 
     def __init__(self, repo: CourseSearchRepository) -> None:
         self._repo = repo
@@ -32,7 +32,7 @@ class SemanticSearchService:
         if version_id is None:
             raise EduCorpError(
                 code="COURSE_NOT_READY",
-                message="Course is not READY for semantic search",
+                message="Course is not active and ready for semantic search",
                 status_code=409,
             )
 
@@ -56,31 +56,34 @@ class SemanticSearchService:
                 )
             )
 
-        results = self._qdrant.search(
+        results = self._qdrant.query_points(
             collection_name=self._collection,
-            query_vector=vector,
+            query=vector,
             limit=top_k,
             query_filter=qmodels.Filter(must=must),
-        )
-
-        module_titles = await self._repo.get_module_titles(course_id)
-        asset_titles = await self._repo.get_asset_titles(course_id)
+        ).points
 
         chunks: list[SemanticChunkResult] = []
         for item in results:
             payload = item.payload or {}
-            module_id_value = UUID(payload.get("module_id"))
-            asset_id_value = UUID(payload.get("asset_id"))
+            p_module_id = UUID(payload["module_id"])
+            p_asset_id = UUID(payload["asset_id"])
+            p_course_id = UUID(payload.get("course_id", str(course_id)))
+            p_version_id = UUID(payload.get("version_id", str(version_id)))
             chunks.append(
                 SemanticChunkResult(
-                    chunk_id=UUID(item.id),
+                    chunk_id=str(item.id),
+                    course_id=p_course_id,
+                    version_id=p_version_id,
                     text=str(payload.get("text", "")),
                     score=float(item.score),
-                    module_id=module_id_value,
-                    module_title=module_titles.get(module_id_value),
-                    asset_id=asset_id_value,
-                    asset_title=asset_titles.get(asset_id_value),
+                    module_id=p_module_id,
+                    module_title=payload.get("module_title"),
+                    asset_id=p_asset_id,
+                    asset_title=payload.get("asset_title"),
+                    page_or_slide_number=payload.get("page_or_slide_number"),
                     chunk_index=int(payload.get("chunk_index", 0)),
+                    quality_score=payload.get("quality_score"),
                 )
             )
 

@@ -23,6 +23,14 @@ class IndexArtifactsInput:
 
 
 @dataclass(frozen=True)
+class QualityReportInput:
+    version_id: UUID
+    extraction_artifact_id: UUID
+    chunks_artifact_id: UUID
+    embeddings_artifact_id: UUID
+
+
+@dataclass(frozen=True)
 class VersionFailureInput:
     version_id: UUID
     error_message: str

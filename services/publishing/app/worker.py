@@ -53,6 +53,7 @@ async def main() -> None:
             activities.chunk_content,
             activities.generate_embeddings,
             activities.index_qdrant,
+            activities.generate_quality_report,
             activities.finalize_version,
             activities.mark_version_rejected,
             activities.mark_version_failed,

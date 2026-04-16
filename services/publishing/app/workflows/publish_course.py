@@ -8,6 +8,7 @@ from app.workflows.types import (
     ArtifactActivityInput,
     IndexArtifactsInput,
     PublishCourseInput,
+    QualityReportInput,
     VersionFailureInput,
 )
 
@@ -50,19 +51,22 @@ class PublishCourseWorkflow:
                 input.version_id,
                 start_to_close_timeout=timedelta(minutes=5),
             )
-            extracted_artifact_id = await workflow.execute_activity(
+            # Stage 1: Staged extraction → canonical page records
+            extraction_artifact_id = await workflow.execute_activity(
                 "extract_text",
                 input.version_id,
-                start_to_close_timeout=timedelta(minutes=15),
+                start_to_close_timeout=timedelta(minutes=30),
             )
+            # Stage 2: Provenance-rich chunking
             chunk_artifact_id = await workflow.execute_activity(
                 "chunk_content",
                 ArtifactActivityInput(
                     version_id=input.version_id,
-                    artifact_id=extracted_artifact_id,
+                    artifact_id=extraction_artifact_id,
                 ),
                 start_to_close_timeout=timedelta(minutes=10),
             )
+            # Stage 3: Cached embedding generation
             embeddings_artifact_id = await workflow.execute_activity(
                 "generate_embeddings",
                 ArtifactActivityInput(
@@ -71,6 +75,7 @@ class PublishCourseWorkflow:
                 ),
                 start_to_close_timeout=timedelta(minutes=20),
             )
+            # Stage 4: Version-safe Qdrant indexing
             await workflow.execute_activity(
                 "index_qdrant",
                 IndexArtifactsInput(
@@ -79,6 +84,17 @@ class PublishCourseWorkflow:
                     embeddings_artifact_id=embeddings_artifact_id,
                 ),
                 start_to_close_timeout=timedelta(minutes=10),
+            )
+            # Stage 5: Quality report
+            await workflow.execute_activity(
+                "generate_quality_report",
+                QualityReportInput(
+                    version_id=input.version_id,
+                    extraction_artifact_id=extraction_artifact_id,
+                    chunks_artifact_id=chunk_artifact_id,
+                    embeddings_artifact_id=embeddings_artifact_id,
+                ),
+                start_to_close_timeout=timedelta(minutes=5),
             )
             await workflow.execute_activity(
                 "finalize_version",
@@ -92,3 +108,4 @@ class PublishCourseWorkflow:
                 start_to_close_timeout=timedelta(minutes=5),
             )
             raise
+
