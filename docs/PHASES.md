@@ -618,7 +618,7 @@ curl http://localhost/api/v1/progress/certificates/<cert_id>
 7. **Implement citation builder** — Parse `[n]` references, validate against chunks
 8. **Implement refusal/clarification logic** — Threshold-based routing
 9. **Implement entitlement check middleware** — Verify enrollment for AI access
-10. **Implement AI rate limiting** — Redis sliding window (20 req/min per user)
+10. **Implement AI rate limiting** — Redis sliding window (20 req/min per user- admin has unlimited for testing)
 11. **Implement response caching** — Redis cache with question hash + course + version
 12. **Implement instructor enhancement chains** — Summary, objectives, quiz, glossary prompts
 13. **Implement async job system** — In-memory job queue (or Celery/Redis-backed)
