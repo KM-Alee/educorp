@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from educorp_common.database.base import Base
 
+import app.models  # noqa: F401
+
 # Alembic Config object
 config = context.config
 

@@ -11,6 +11,7 @@ from app.repositories.asset_repository import AssetRepository
 from app.repositories.course_repository import CourseRepository
 from app.repositories.module_repository import ModuleRepository
 from app.schemas.course import CourseCreate, CourseOut, CourseUpdate, CourseListItem, ModuleOut
+from app.schemas.internal import CourseEnrollmentContext, CourseEnrollmentModule
 from app.schemas.publishing import PublishManifest, PublishManifestAsset, PublishManifestModule
 from app.services.slug_service import SlugService
 from educorp_common.errors import ConflictError, ForbiddenError, NotFoundError, ValidationError
@@ -240,6 +241,27 @@ class CourseService:
         )
         items = [self._to_list_item(c) for c in courses]
         return items, total
+
+    async def get_enrollment_context(self, *, course_id: UUID) -> CourseEnrollmentContext:
+        course = await self._get_or_404(course_id)
+        modules = await self._module_repo.list_for_course(course_id)
+        return CourseEnrollmentContext(
+            course_id=course.id,
+            title=course.title,
+            visibility=course.visibility,
+            current_version_id=course.current_version_id,
+            max_capacity=course.max_capacity,
+            prerequisites=[str(prereq) for prereq in course.prerequisites or []],
+            modules=[
+                CourseEnrollmentModule(
+                    id=module.id,
+                    title=module.title,
+                    sort_order=module.sort_order,
+                    is_required=module.is_required,
+                )
+                for module in modules
+            ],
+        )
 
     # ---- helpers ----
 

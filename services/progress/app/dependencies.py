@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
+from fastapi import Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from educorp_common.auth.dependencies import CurrentUser, get_current_user, require_roles
@@ -27,10 +28,20 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
+async def require_internal_service(
+    x_internal_service_token: str | None = Header(default=None, alias="X-Internal-Service-Token"),
+) -> None:
+    from app.config import settings
+
+    if x_internal_service_token != settings.internal_service_token:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
 __all__ = [
     "CurrentUser",
     "get_current_user",
     "get_session",
+    "require_internal_service",
     "require_roles",
     "set_engine",
 ]

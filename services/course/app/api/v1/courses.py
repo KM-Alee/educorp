@@ -18,6 +18,7 @@ from app.dependencies import (
 )
 from app.schemas.course import CourseCreate, CourseListItem, CourseOut, CourseUpdate
 from app.schemas.draft import DraftContentDocument, DraftContentUpdate, DraftValidationResult
+from app.schemas.internal import CourseEnrollmentContext
 from app.schemas.publishing import ActivateCourseVersionRequest, PublishVersionResponse
 from app.services.course_service import CourseService
 from app.services.draft_content_service import DraftContentService
@@ -253,6 +254,20 @@ async def activate_course_version(
         version_id=payload.version_id,
     )
     await session.commit()
+    return SuccessResponse(data=result, meta=_meta())
+
+
+@router.get(
+    "/internal/{course_id}/enrollment-context",
+    response_model=SuccessResponse[CourseEnrollmentContext],
+)
+async def get_course_enrollment_context(
+    course_id: UUID,
+    _: None = Depends(require_internal_service),
+    session: AsyncSession = Depends(get_session),
+) -> SuccessResponse[CourseEnrollmentContext]:
+    svc = CourseService(session)
+    result = await svc.get_enrollment_context(course_id=course_id)
     return SuccessResponse(data=result, meta=_meta())
 
 
