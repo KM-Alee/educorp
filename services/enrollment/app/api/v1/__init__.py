@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from app.api.v1.enrollments import router as enrollments_router
+
 router = APIRouter()
+
+router.include_router(enrollments_router)
 
 
 @router.get("/health/live")

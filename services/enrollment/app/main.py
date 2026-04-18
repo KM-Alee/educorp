@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
+from redis.asyncio import Redis
 
 from app.api.v1 import router as v1_router
 from app.config import settings
@@ -27,8 +28,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     set_engine(engine)
 
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    from app.dependencies import set_redis
+
+    set_redis(redis)
+
     yield
 
+    await redis.close()
     await engine.dispose()
     logger.info("Service stopped", service=settings.service_name)
 
