@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -34,6 +34,7 @@ import {
   type ModuleDetail,
   type PublishingVersion,
 } from '../../lib/api'
+import { AIAssistantPanel, AIEnhancementPanel } from '../ai/AIPanels'
 import { getErrorMessage } from '../../lib/types'
 import { useSessionState } from '../../lib/session'
 
@@ -402,14 +403,25 @@ export function CourseEditorPage() {
   const queryClient = useQueryClient()
   const session = useSessionState()
   const { courseId = '' } = useParams()
-  const [courseForm, setCourseForm] = useState<CourseCreateInput>(defaultCourseInput)
-  const [courseTagsInput, setCourseTagsInput] = useState('')
-  const [draftContentText, setDraftContentText] = useState(stringifyContent())
+  const [courseFormState, setCourseFormState] = useState<{
+    courseId: string
+    overrides: Partial<CourseCreateInput>
+  }>({ courseId, overrides: {} })
+  const [courseTagsState, setCourseTagsState] = useState<{
+    courseId: string
+    value: string
+    dirty: boolean
+  }>({ courseId, value: '', dirty: false })
+  const [draftContentState, setDraftContentState] = useState<{
+    courseId: string
+    value: string
+    dirty: boolean
+  }>({ courseId, value: stringifyContent(), dirty: false })
   const [draftContentError, setDraftContentError] = useState('')
   const [moduleTitle, setModuleTitle] = useState('')
   const [moduleDescription, setModuleDescription] = useState('')
   const [moduleEdits, setModuleEdits] = useState<Record<string, Pick<ModuleDetail, 'title' | 'description' | 'is_required'>>>({})
-  const [publishingVersionId, setPublishingVersionId] = useState<string | null>(() => getStoredVersionId(courseId))
+  const [publishingVersionId, setPublishingVersionId] = useState<string | null>(null)
 
   const courseQuery = useQuery({
     queryKey: ['course', courseId],
@@ -426,44 +438,45 @@ export function CourseEditorPage() {
     queryFn: () => getDraftContent(courseId),
   })
 
-  useEffect(() => {
-    if (!courseQuery.data) return
-    setCourseForm({
-      title: courseQuery.data.title,
-      description: courseQuery.data.description ?? '',
-      short_description: courseQuery.data.short_description ?? '',
-      category: courseQuery.data.category ?? '',
-      difficulty: courseQuery.data.difficulty ?? 'beginner',
-      estimated_duration: courseQuery.data.estimated_duration ?? '',
-      tags: courseQuery.data.tags ?? [],
-      max_capacity: courseQuery.data.max_capacity ?? undefined,
+  const baseCourseForm: CourseCreateInput = useMemo(() => (
+    {
+      title: courseQuery.data?.title ?? defaultCourseInput.title,
+      description: courseQuery.data?.description ?? defaultCourseInput.description,
+      short_description: courseQuery.data?.short_description ?? defaultCourseInput.short_description,
+      category: courseQuery.data?.category ?? defaultCourseInput.category,
+      difficulty: courseQuery.data?.difficulty ?? defaultCourseInput.difficulty,
+      estimated_duration: courseQuery.data?.estimated_duration ?? defaultCourseInput.estimated_duration,
+      tags: courseQuery.data?.tags ?? defaultCourseInput.tags,
+      max_capacity: courseQuery.data?.max_capacity ?? undefined,
+    }
+  ), [courseQuery.data])
+
+  const courseFormOverrides = courseFormState.courseId === courseId ? courseFormState.overrides : {}
+  const courseForm = { ...baseCourseForm, ...courseFormOverrides }
+
+  const courseTagsValue =
+    courseTagsState.courseId === courseId && courseTagsState.dirty
+      ? courseTagsState.value
+      : (courseQuery.data?.tags ?? []).join(', ')
+
+  const draftContentValue =
+    draftContentState.courseId === courseId && draftContentState.dirty
+      ? draftContentState.value
+      : stringifyContent(draftContentQuery.data)
+
+  const storedPublishingVersionId = useMemo(() => getStoredVersionId(courseId), [courseId])
+  const effectivePublishingVersionId = publishingVersionId ?? storedPublishingVersionId
+
+  function updateCourseForm<K extends keyof CourseCreateInput>(key: K, value: CourseCreateInput[K]) {
+    setCourseFormState((prev) => {
+      const overrides = prev.courseId === courseId ? prev.overrides : {}
+      return { courseId, overrides: { ...overrides, [key]: value } }
     })
-    setCourseTagsInput((courseQuery.data.tags ?? []).join(', '))
-  }, [courseQuery.data])
-
-  useEffect(() => {
-    if (!courseId) return
-    setPublishingVersionId(getStoredVersionId(courseId))
-  }, [courseId])
-
-  useEffect(() => {
-    if (!draftContentQuery.data) return
-    setDraftContentText(stringifyContent(draftContentQuery.data))
-  }, [draftContentQuery.data])
-
-  useEffect(() => {
-    if (!modulesQuery.data) return
-    setModuleEdits(
-      modulesQuery.data.reduce<Record<string, Pick<ModuleDetail, 'title' | 'description' | 'is_required'>>>((acc, m) => {
-        acc[m.id] = { title: m.title, description: m.description, is_required: m.is_required }
-        return acc
-      }, {}),
-    )
-  }, [modulesQuery.data])
+  }
 
   const updateCourseMutation = useMutation({
     mutationFn: (input: CourseCreateInput) =>
-      updateCourse(courseId, { ...input, tags: tagsFromInput(courseTagsInput) }),
+      updateCourse(courseId, { ...input, tags: tagsFromInput(courseTagsValue) }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['course', courseId] })
       await queryClient.invalidateQueries({ queryKey: ['courses'] })
@@ -490,12 +503,15 @@ export function CourseEditorPage() {
   })
 
   const updateModuleMutation = useMutation({
-    mutationFn: (moduleId: string) =>
-      updateModule(courseId, moduleId, {
-        title: moduleEdits[moduleId]?.title,
-        description: moduleEdits[moduleId]?.description ?? undefined,
-        is_required: moduleEdits[moduleId]?.is_required,
-      }),
+    mutationFn: (moduleId: string) => {
+      const module = modulesQuery.data?.find((item) => item.id === moduleId)
+      const edits = moduleEdits[moduleId]
+      return updateModule(courseId, moduleId, {
+        title: edits?.title ?? module?.title,
+        description: edits?.description ?? module?.description ?? undefined,
+        is_required: edits?.is_required ?? module?.is_required,
+      })
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['modules', courseId] })
       await queryClient.invalidateQueries({ queryKey: ['course', courseId] })
@@ -565,15 +581,21 @@ export function CourseEditorPage() {
     mutationFn: (content: Record<string, unknown>) => updateDraftContent(courseId, content),
     onSuccess: async () => {
       setDraftContentError('')
+      setDraftContentState((prev) => ({
+        courseId,
+        value: prev.courseId === courseId ? prev.value : stringifyContent(),
+        dirty: false,
+      }))
       await queryClient.invalidateQueries({ queryKey: ['draft-content', courseId] })
     },
   })
 
   const publishingQuery = useQuery<PublishingVersion>({
-    queryKey: ['publishing', publishingVersionId],
-    queryFn: () => getPublishingVersion(publishingVersionId ?? ''),
-    enabled: Boolean(publishingVersionId),
-    refetchInterval: (data) => {
+    queryKey: ['publishing', effectivePublishingVersionId],
+    queryFn: () => getPublishingVersion(effectivePublishingVersionId ?? ''),
+    enabled: Boolean(effectivePublishingVersionId),
+    refetchInterval: (query) => {
+      const data = query.state.data
       if (!data) return false
       if (data.status === 'PREPARING' || data.status === 'PUBLISHING') return 5000
       if (data.status === 'REVIEW_REQUIRED' && data.approval_state === 'APPROVED') return 5000
@@ -658,7 +680,7 @@ export function CourseEditorPage() {
               <span className="form-field__label">Title</span>
               <input
                 value={courseForm.title}
-                onChange={(e) => setCourseForm((c) => ({ ...c, title: e.target.value }))}
+                onChange={(e) => updateCourseForm('title', e.target.value)}
               />
             </label>
 
@@ -666,7 +688,7 @@ export function CourseEditorPage() {
               <span className="form-field__label">Description</span>
               <textarea
                 value={courseForm.description ?? ''}
-                onChange={(e) => setCourseForm((c) => ({ ...c, description: e.target.value }))}
+                onChange={(e) => updateCourseForm('description', e.target.value)}
               />
             </label>
 
@@ -675,14 +697,14 @@ export function CourseEditorPage() {
                 <span className="form-field__label">Short description</span>
                 <input
                   value={courseForm.short_description ?? ''}
-                  onChange={(e) => setCourseForm((c) => ({ ...c, short_description: e.target.value }))}
+                  onChange={(e) => updateCourseForm('short_description', e.target.value)}
                 />
               </label>
               <label className="form-field">
                 <span className="form-field__label">Category</span>
                 <input
                   value={courseForm.category ?? ''}
-                  onChange={(e) => setCourseForm((c) => ({ ...c, category: e.target.value }))}
+                  onChange={(e) => updateCourseForm('category', e.target.value)}
                 />
               </label>
             </div>
@@ -692,7 +714,7 @@ export function CourseEditorPage() {
                 <span className="form-field__label">Difficulty</span>
                 <select
                   value={courseForm.difficulty ?? ''}
-                  onChange={(e) => setCourseForm((c) => ({ ...c, difficulty: e.target.value }))}
+                  onChange={(e) => updateCourseForm('difficulty', e.target.value)}
                 >
                   <option value="beginner">Beginner</option>
                   <option value="intermediate">Intermediate</option>
@@ -703,14 +725,19 @@ export function CourseEditorPage() {
                 <span className="form-field__label">Estimated duration</span>
                 <input
                   value={courseForm.estimated_duration ?? ''}
-                  onChange={(e) => setCourseForm((c) => ({ ...c, estimated_duration: e.target.value }))}
+                  onChange={(e) => updateCourseForm('estimated_duration', e.target.value)}
                 />
               </label>
             </div>
 
             <label className="form-field">
               <span className="form-field__label">Tags</span>
-              <input value={courseTagsInput} onChange={(e) => setCourseTagsInput(e.target.value)} />
+              <input
+                value={courseTagsValue}
+                onChange={(e) =>
+                  setCourseTagsState({ courseId, value: e.target.value, dirty: true })
+                }
+              />
             </label>
 
             {updateCourseMutation.isError ? <StatusMsg type="error" text={getErrorMessage(updateCourseMutation.error)} /> : null}
@@ -907,7 +934,13 @@ export function CourseEditorPage() {
             <div className="form-stack">
               <label className="form-field">
                 <span className="form-field__label">JSON content</span>
-                <textarea className="json-editor" value={draftContentText} onChange={(e) => setDraftContentText(e.target.value)} />
+                <textarea
+                  className="json-editor"
+                  value={draftContentValue}
+                  onChange={(e) =>
+                    setDraftContentState({ courseId, value: e.target.value, dirty: true })
+                  }
+                />
               </label>
 
               {draftContentError ? <StatusMsg type="error" text={draftContentError} /> : null}
@@ -920,7 +953,7 @@ export function CourseEditorPage() {
                   disabled={saveDraftContentMutation.isPending}
                   onClick={() => {
                     try {
-                      const parsed = parseDraftContent(draftContentText)
+                      const parsed = parseDraftContent(draftContentValue)
                       setDraftContentError('')
                       saveDraftContentMutation.mutate(parsed)
                     } catch (err) {
@@ -950,6 +983,11 @@ export function CourseEditorPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="page-stack">
+        <AIAssistantPanel courseId={courseId} modules={modules} />
+        <AIEnhancementPanel courseId={courseId} modules={modules} />
       </div>
 
       {/* Modules */}

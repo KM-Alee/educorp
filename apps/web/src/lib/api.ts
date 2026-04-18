@@ -12,6 +12,7 @@ const AUTH_BASE = '/api/v1/auth'
 const COURSE_BASE = '/api/v1/courses'
 const PUBLISHING_BASE = '/api/v1/publishing'
 const SEARCH_BASE = '/api/v1/search'
+const AI_BASE = '/api/v1/ai'
 
 export interface RegisterInput {
   email: string
@@ -270,6 +271,44 @@ export interface CourseSearchItem {
   difficulty: string | null
   relevance_score: number
   matched_in: string[]
+}
+
+export interface AICitation {
+  chunk_id: string
+  module_title?: string | null
+  asset_title?: string | null
+  text_snippet: string
+  page_number?: number | null
+}
+
+export interface AIAnswer {
+  query_id: string
+  answer: string
+  citations: AICitation[]
+  confidence: string
+  course_id: string
+  version_id: string
+  response_type: string
+}
+
+export interface AIEnhancementJob {
+  job_id: string
+  job_type: string
+  status: string
+  result?: Record<string, unknown> | null
+  created_at?: string | null
+  completed_at?: string | null
+}
+
+export interface AIEnhanceResponse {
+  job_id: string
+  status: string
+  message: string
+}
+
+export interface AIJobList {
+  items: AIEnhancementJob[]
+  total: number
 }
 
 async function parsePayload<T>(response: Response): Promise<T | null> {
@@ -884,6 +923,81 @@ export async function reviewInstructorApplication(input: {
       method: 'PATCH',
       body: JSON.stringify({ status: input.status }),
     },
+    { auth: true },
+  )
+
+  return response.data
+}
+
+export async function askAI(input: {
+  course_id: string
+  question: string
+  module_id?: string | null
+}): Promise<AIAnswer> {
+  const response = await requestEnvelope<AIAnswer>(
+    `${AI_BASE}/ask`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+    { auth: true },
+  )
+
+  return response.data
+}
+
+export async function createAIEnhancementJob(input: {
+  course_id: string
+  job_type: string
+  scope: string
+  module_id?: string | null
+  parameters?: Record<string, unknown>
+}): Promise<AIEnhanceResponse> {
+  const response = await requestEnvelope<AIEnhanceResponse>(
+    `${AI_BASE}/instructor/enhance`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        course_id: input.course_id,
+        job_type: input.job_type,
+        scope: input.scope,
+        module_id: input.module_id ?? null,
+        parameters: input.parameters ?? {},
+      }),
+    },
+    { auth: true },
+  )
+
+  return response.data
+}
+
+export async function getAIJob(jobId: string): Promise<AIEnhancementJob> {
+  const response = await requestEnvelope<AIEnhancementJob>(
+    `${AI_BASE}/instructor/jobs/${jobId}`,
+    {},
+    { auth: true },
+  )
+
+  return response.data
+}
+
+export async function listAIJobs(filters: {
+  course_id?: string
+  status?: string
+  job_type?: string
+  page?: number
+  page_size?: number
+}): Promise<AIJobList> {
+  const params = new URLSearchParams()
+  if (filters.course_id) params.set('course_id', filters.course_id)
+  if (filters.status) params.set('status', filters.status)
+  if (filters.job_type) params.set('job_type', filters.job_type)
+  params.set('page', String(filters.page ?? 1))
+  params.set('page_size', String(filters.page_size ?? 20))
+
+  const response = await requestEnvelope<AIJobList>(
+    `${AI_BASE}/instructor/jobs?${params.toString()}`,
+    {},
     { auth: true },
   )
 

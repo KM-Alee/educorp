@@ -5,6 +5,10 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
+from motor.motor_asyncio import AsyncIOMotorClient
+from qdrant_client import QdrantClient
+from redis.asyncio import Redis
+from aiokafka import AIOKafkaProducer
 
 from app.api.v1 import router as v1_router
 from app.config import settings
@@ -23,12 +27,41 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting service", service=settings.service_name)
 
     engine = create_async_engine(settings.database_url)
-    from app.dependencies import set_engine
+    from app.dependencies import (
+        set_engine,
+        set_kafka_producer,
+        set_mongo,
+        set_qdrant,
+        set_redis,
+    )
 
     set_engine(engine)
 
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    set_redis(redis)
+
+    mongo_client: AsyncIOMotorClient = AsyncIOMotorClient(settings.mongo_url)  # type: ignore[type-arg]
+    mongo_db = mongo_client[settings.mongo_db]
+    set_mongo(mongo_client, mongo_db)
+
+    qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+    set_qdrant(qdrant)
+
+    kafka_producer: AIOKafkaProducer | None = None
+    try:
+        kafka_producer = AIOKafkaProducer(bootstrap_servers=settings.kafka_bootstrap_servers)
+        await kafka_producer.start()
+        set_kafka_producer(kafka_producer)
+    except Exception as exc:
+        logger.warning("Kafka producer unavailable", exc_info=exc)
+        kafka_producer = None
+
     yield
 
+    if kafka_producer is not None:
+        await kafka_producer.stop()
+    mongo_client.close()
+    await redis.close()
     await engine.dispose()
     logger.info("Service stopped", service=settings.service_name)
 
@@ -38,6 +71,9 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="EduCorp AI Service",
         version="0.1.0",
+        docs_url="/api/v1/ai/docs",
+        openapi_url="/api/v1/ai/openapi.json",
+        redoc_url="/api/v1/ai/redoc",
         lifespan=lifespan,
     )
     app.add_middleware(CorrelationIdMiddleware)

@@ -115,5 +115,5 @@ export function defaultRouteForSession(session: SessionState): string {
     return '/app/courses'
   }
 
-  return '/app/profile'
+  return '/app/catalog'
 }
