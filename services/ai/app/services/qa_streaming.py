@@ -149,6 +149,7 @@ class QAStreamingService:
 
         chunks, scores = await self._retriever.retrieve(
             course_id=course_id,
+            version_id=UUID(str(version_id)),
             question=question,
             module_id=module_id,
         )
@@ -324,6 +325,14 @@ class QAStreamingService:
             tokens_used=tokens_used,
             cached=cached,
         )
+        event_query = build_event(
+            event_type="AssistantQueryAsked",
+            aggregate_type="ai_query",
+            aggregate_id=str(query_id),
+            actor_id=str(user_id),
+            payload=payload,
+        )
+        await emit_event(self._kafka_producer, event_query)
         event = build_event(
             event_type="AssistantAnswerGenerated",
             aggregate_type="ai_query",

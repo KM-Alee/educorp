@@ -863,6 +863,15 @@ export async function cancelPublishingVersion(versionId: string): Promise<Publis
   return response.data
 }
 
+export async function activatePublishingVersion(versionId: string): Promise<PublishVersionResponse> {
+  const response = await requestEnvelope<PublishVersionResponse>(
+    `${PUBLISHING_BASE}/versions/${versionId}/activate`,
+    { method: 'POST' },
+    { auth: true },
+  )
+  return response.data
+}
+
 export async function approvePublishingVersion(versionId: string): Promise<PublishVersionResponse> {
   const response = await requestEnvelope<PublishVersionResponse>(
     `${PUBLISHING_BASE}/versions/${versionId}/approve`,

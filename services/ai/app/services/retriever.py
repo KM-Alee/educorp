@@ -21,6 +21,7 @@ class QdrantRetriever:
         self,
         *,
         course_id: UUID,
+        version_id: UUID,
         question: str,
         module_id: UUID | None,
     ) -> tuple[list[dict], list[float]]:
@@ -32,8 +33,8 @@ class QdrantRetriever:
                 match=qmodels.MatchValue(value=str(course_id)),
             ),
             qmodels.FieldCondition(
-                key="version_status",
-                match=qmodels.MatchValue(value="READY"),
+                key="version_id",
+                match=qmodels.MatchValue(value=str(version_id)),
             ),
         ]
         if module_id:
@@ -68,7 +69,7 @@ class QdrantRetriever:
                     "asset_title": payload.get("asset_title"),
                     "text": payload.get("text", ""),
                     "chunk_index": payload.get("chunk_index", 0),
-                    "page_number": payload.get("page_number"),
+                    "page_number": payload.get("page_or_slide_number"),
                     "section_title": payload.get("section_title"),
                 }
             )

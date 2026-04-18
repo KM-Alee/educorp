@@ -209,7 +209,7 @@ async def retry_version(
 )
 async def approve_version(
     version_id: UUID,
-    _current_user: CurrentUser = Depends(require_roles("instructor", "admin")),
+    _current_user: CurrentUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ) -> SuccessResponse[PublishVersionResponse]:
     svc = PublishingVersionService(session)
@@ -243,7 +243,7 @@ async def approve_version(
 )
 async def reject_version(
     version_id: UUID,
-    _current_user: CurrentUser = Depends(require_roles("instructor", "admin")),
+    _current_user: CurrentUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ) -> SuccessResponse[PublishVersionResponse]:
     svc = PublishingVersionService(session)

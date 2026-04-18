@@ -185,6 +185,7 @@ class QAService:
     async def _retrieve(self, state: QAState) -> QAState:
         chunks, scores = await self._retriever.retrieve(
             course_id=state["course_id"],
+            version_id=state["version_id"],
             question=state["question"],
             module_id=state.get("module_id"),
         )

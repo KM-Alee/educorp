@@ -2,11 +2,16 @@ import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
 
 import { getCourse, listModules, type ModuleDetail } from '../../lib/api'
+import { useSessionState } from '../../lib/session'
 import { AIAssistantPanel, AIEnhancementPanel } from '../ai/AIPanels'
 import { getErrorMessage } from '../../lib/types'
 
 export function StudentCoursePage() {
   const { courseId = '' } = useParams()
+  const session = useSessionState()
+  const canEnhance = Boolean(
+    session?.user.roles.some((role) => role === 'instructor' || role === 'admin'),
+  )
 
   const courseQuery = useQuery({
     queryKey: ['course', courseId],
@@ -85,7 +90,7 @@ export function StudentCoursePage() {
 
       <div className="page-stack">
         <AIAssistantPanel courseId={courseId} modules={modules} />
-        <AIEnhancementPanel courseId={courseId} modules={modules} />
+        {canEnhance ? <AIEnhancementPanel courseId={courseId} modules={modules} /> : null}
       </div>
 
       {modulesQuery.isLoading ? (

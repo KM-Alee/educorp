@@ -187,6 +187,7 @@ class InstructorService:
 
         chunks, _ = await self._retriever.retrieve(
             course_id=course_id,
+            version_id=version_id,
             question=_stream_query_hint(job_type, parameters),
             module_id=module_id if scope == "module" else None,
         )
@@ -219,6 +220,10 @@ class InstructorService:
         citations = build_citations(answer, chunks)
         for citation in citations:
             yield {"event": "citation", "data": _json(citation)}
+
+        current = await self._jobs.get_job(str(job_id))
+        if current and current.get("status") == "CANCELLED":
+            return
 
         await self._jobs.update_job(
             str(job_id),
@@ -280,6 +285,7 @@ class InstructorService:
 
             chunks, _ = await self._retriever.retrieve(
                 course_id=course_id,
+                version_id=version_id,
                 question=_stream_query_hint(job_type, parameters),
                 module_id=module_id if scope == "module" else None,
             )
@@ -306,6 +312,9 @@ class InstructorService:
                 max_tokens=settings.max_output_tokens,
             )
             citations = build_citations(result.content, chunks)
+            current = await self._jobs.get_job(str(job_id))
+            if current and current.get("status") == "CANCELLED":
+                return
             await self._jobs.update_job(
                 str(job_id),
                 {
@@ -334,6 +343,9 @@ class InstructorService:
             )
         except Exception as exc:
             logger.warning("Instructor job failed", exc_info=exc)
+            current = await self._jobs.get_job(str(job_id))
+            if current and current.get("status") == "CANCELLED":
+                return
             await self._jobs.update_job(
                 str(job_id),
                 {

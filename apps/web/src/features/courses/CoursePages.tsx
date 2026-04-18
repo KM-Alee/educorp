@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import {
+  activatePublishingVersion,
   approvePublishingVersion,
   cancelPublishingVersion,
   createCourse,
@@ -563,6 +564,16 @@ export function CourseEditorPage() {
     },
   })
 
+  const activateMutation = useMutation({
+    mutationFn: (versionId: string) => activatePublishingVersion(versionId),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ['publishing', result.version_id] })
+      await queryClient.invalidateQueries({ queryKey: ['course', courseId] })
+      await queryClient.invalidateQueries({ queryKey: ['courses'] })
+      await queryClient.invalidateQueries({ queryKey: ['catalog'] })
+    },
+  })
+
   const approveMutation = useMutation({
     mutationFn: (versionId: string) => approvePublishingVersion(versionId),
     onSuccess: (result) => {
@@ -628,7 +639,7 @@ export function CourseEditorPage() {
   const validationResult = validateDraftMutation.data
   const publishingData = publishingQuery.data
   const canCancel = session?.user.roles.includes('admin')
-  const canReview = Boolean(session?.user.roles.some((role) => role === 'admin' || role === 'instructor'))
+  const canReview = Boolean(session?.user.roles.includes('admin'))
   const preflightSummary = publishingData?.preflight_summary_json
 
   return (
@@ -840,6 +851,16 @@ export function CourseEditorPage() {
                   </button>
                 </>
               ) : null}
+              {publishingData?.status === 'READY' && courseQuery.data?.visibility !== 'PUBLISHED' ? (
+                <button
+                  className="btn btn--primary"
+                  disabled={activateMutation.isPending}
+                  onClick={() => activateMutation.mutate(publishingData.id)}
+                  type="button"
+                >
+                  {activateMutation.isPending ? 'Activating...' : 'Activate'}
+                </button>
+              ) : null}
               {(publishingData?.status === 'PUBLISHING' || publishingData?.status === 'REVIEW_REQUIRED') && canCancel ? (
                 <button
                   className="btn btn--danger"
@@ -866,6 +887,9 @@ export function CourseEditorPage() {
             ) : null}
             {rejectMutation.isError ? (
               <StatusMsg type="error" text={getErrorMessage(rejectMutation.error)} />
+            ) : null}
+            {activateMutation.isError ? (
+              <StatusMsg type="error" text={getErrorMessage(activateMutation.error)} />
             ) : null}
 
             {publishingQuery.isError ? (

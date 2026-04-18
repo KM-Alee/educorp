@@ -1,4 +1,4 @@
-# make.ps1 — EduCorp Developer Shortcuts for Windows
+# make.ps1 - EduCorp Developer Shortcuts for Windows
 # PowerShell equivalent of the Makefile
 #
 # Usage:
@@ -42,12 +42,12 @@ function Invoke-Docker {
     return $process.ExitCode
 }
 
-# ─── Commands ─────────────────────────────────────────────
+# ---- Commands --------------------------------------------
 
 function Show-Help {
     Write-Host ""
     Write-Color "EduCorp Developer Commands (Windows)" "Cyan"
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkGray
+    Write-Host ("-" * 50) -ForegroundColor DarkGray
     Write-Host ""
 
     $commands = @(
@@ -162,7 +162,7 @@ function Check-Health {
     Write-Host ""
     $header = "{0,-22} {1,-10} {2}" -f "SERVICE", "STATUS", "RESPONSE"
     Write-Color $header "White"
-    Write-Host ("─" * 50) -ForegroundColor DarkGray
+    Write-Host ("-" * 50) -ForegroundColor DarkGray
 
     foreach ($svc in $SERVICES) {
         $endpoint = $svc
@@ -278,7 +278,7 @@ function Reset-All {
     Start-Orchestrated
 }
 
-# ─── Command dispatch ────────────────────────────────────
+# ---- Command dispatch ------------------------------------
 switch ($Command.ToLower()) {
     "help"             { Show-Help }
     "up"               { Start-Up }

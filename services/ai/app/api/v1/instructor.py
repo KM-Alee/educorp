@@ -17,6 +17,7 @@ from app.dependencies import (
     get_qdrant,
     get_redis,
     get_session,
+    require_roles,
 )
 from app.repositories.ai_jobs_repository import AiJobsRepository
 from app.repositories.entitlement_repository import EntitlementRepository
@@ -28,6 +29,7 @@ from educorp_common.schemas.responses import ResponseMeta, SuccessResponse
 
 logger = structlog.get_logger()
 router = APIRouter(tags=["ai-instructor"])
+require_instructor = require_roles(["instructor", "admin"])
 
 
 def _meta() -> ResponseMeta:
@@ -41,6 +43,7 @@ def _meta() -> ResponseMeta:
 async def enhance(
     payload: EnhanceRequest,
     current_user: CurrentUser = Depends(get_current_user),
+    _: None = Depends(require_instructor),
     session: AsyncSession = Depends(get_session),
     redis=Depends(get_redis),
     qdrant=Depends(get_qdrant),
@@ -84,7 +87,11 @@ async def enhance_stream(
     job_type: str = Query(..., pattern=r"^(summary|objectives|quiz|glossary)$"),
     scope: str = Query(..., pattern=r"^(course|module)$"),
     module_id: UUID | None = Query(default=None),
+    max_length: int | None = Query(default=None, ge=100, le=2000),
+    question_count: int | None = Query(default=None, ge=5, le=30),
+    difficulty: str | None = Query(default=None),
     current_user: CurrentUser = Depends(get_current_user),
+    _: None = Depends(require_instructor),
     session: AsyncSession = Depends(get_session),
     redis=Depends(get_redis),
     qdrant=Depends(get_qdrant),
@@ -100,6 +107,15 @@ async def enhance_stream(
         kafka_producer=kafka_producer,
     )
     job_id = uuid4()
+    parameters = {
+        key: value
+        for key, value in {
+            "max_length": max_length,
+            "question_count": question_count,
+            "difficulty": difficulty,
+        }.items()
+        if value is not None
+    }
 
     async def event_generator():
         try:
@@ -109,7 +125,7 @@ async def enhance_stream(
                 course_id=course_id,
                 module_id=module_id if scope == "module" else None,
                 scope=scope,
-                parameters={},
+                parameters=parameters,
                 requested_by=user_id,
                 roles=current_user.get("roles", []),
             ):
@@ -133,6 +149,7 @@ async def enhance_stream(
 async def get_job(
     job_id: UUID,
     current_user: CurrentUser = Depends(get_current_user),
+    _: None = Depends(require_instructor),
     session: AsyncSession = Depends(get_session),
     mongo_db=Depends(get_mongo_db),
 ) -> SuccessResponse[JobStatusResponse]:
@@ -158,6 +175,7 @@ async def get_job(
 async def cancel_job(
     job_id: UUID,
     current_user: CurrentUser = Depends(get_current_user),
+    _: None = Depends(require_instructor),
     session: AsyncSession = Depends(get_session),
     redis=Depends(get_redis),
     qdrant=Depends(get_qdrant),
@@ -191,6 +209,7 @@ async def list_jobs(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     current_user: CurrentUser = Depends(get_current_user),
+    _: None = Depends(require_instructor),
     session: AsyncSession = Depends(get_session),
     mongo_db=Depends(get_mongo_db),
 ) -> SuccessResponse[JobListResponse]:
