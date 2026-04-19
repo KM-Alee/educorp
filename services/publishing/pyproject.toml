@@ -27,6 +27,7 @@ dependencies = [
     "webvtt-py>=0.4.6",
     "srt>=3.5.3",
     "redis[hiredis]>=5.0.0",
+    "aiokafka>=0.10.0",
 ]
 
 [build-system]

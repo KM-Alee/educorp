@@ -19,6 +19,8 @@ class Settings(BaseAppSettings):
     instructor_auto_approve: bool = False
 
     internal_service_token: str = "change-me"
+    user_lifecycle_topic: str = "user.lifecycle"
+    relay_poll_interval_seconds: float = 2.0
 
 
 settings = Settings()

@@ -7,8 +7,9 @@ import structlog
 from fastapi import FastAPI
 
 from app.api.v1 import router as v1_router
+from app.consumers import AnalyticsKafkaConsumer
 from app.config import settings
-from educorp_common.database.session import create_async_engine
+from educorp_common.database.session import create_async_engine, create_session_factory
 from educorp_common.errors import register_exception_handlers
 from educorp_common.middleware.correlation import CorrelationIdMiddleware
 from educorp_common.middleware.logging import setup_logging
@@ -27,8 +28,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     set_engine(engine)
 
+    session_factory = create_session_factory(engine)
+    consumer: AnalyticsKafkaConsumer | None = None
+    try:
+        consumer = AnalyticsKafkaConsumer(session_factory)
+        await consumer.start()
+    except Exception as exc:
+        logger.warning("Analytics Kafka consumer unavailable", exc_info=exc)
+        consumer = None
+
     yield
 
+    if consumer is not None:
+        await consumer.stop()
     await engine.dispose()
     logger.info("Service stopped", service=settings.service_name)
 

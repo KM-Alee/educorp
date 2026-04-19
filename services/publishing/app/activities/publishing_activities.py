@@ -15,6 +15,7 @@ from temporalio import activity
 from app.config import settings
 from app.models.chunk import Chunk
 from app.models.version_artifact import VersionArtifact
+from app.repositories.outbox_repository import OutboxRepository
 from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.course_version_repository import CourseVersionRepository
 from app.repositories.publishing_step_repository import PublishingStepRepository
@@ -604,6 +605,28 @@ class PublishingActivities:
                     version_id=version.id,
                 )
                 activated_course_id = activated_version.course_id
+
+                manifest = await VersionManifestRepository(session).get_by_version_id(version_id)
+                if manifest is not None:
+                    await OutboxRepository(session).write(
+                        aggregate_type="course_version",
+                        aggregate_id=version.id,
+                        event_type="CoursePublished",
+                        data={
+                            "course_id": str(version.course_id),
+                            "version_id": str(version.id),
+                            "version_number": version.version_number,
+                            "course_title": manifest.title,
+                            "instructor_id": str(manifest.instructor_id),
+                            "published_at": now.isoformat(),
+                        },
+                        metadata={
+                            "source_service": "publishing",
+                            "correlation_id": activity.info().workflow_id,
+                            "actor_id": str(manifest.instructor_id),
+                        },
+                        correlation_id=uuid5(version.id, activity.info().workflow_id),
+                    )
 
                 await _mark_step(session, version_id, STEP_FINALIZE, "COMPLETED")
                 await session.commit()

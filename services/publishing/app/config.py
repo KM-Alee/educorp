@@ -37,11 +37,11 @@ class Settings(BaseAppSettings):
     embedding_dimension: int = 1536
 
     # Chunking — token-aware (1 token ≈ 4 chars)
-    chunk_target_tokens: int = 500          # target chunk size in tokens
-    chunk_max_tokens: int = 800             # hard cap in tokens
-    chunk_overlap_tokens: int = 80          # overlap within same page
-    chunk_size: int = 2000                  # legacy char-based fallback (unused by new chunker)
-    chunk_overlap: int = 320               # legacy fallback
+    chunk_target_tokens: int = 500  # target chunk size in tokens
+    chunk_max_tokens: int = 800  # hard cap in tokens
+    chunk_overlap_tokens: int = 80  # overlap within same page
+    chunk_size: int = 2000  # legacy char-based fallback (unused by new chunker)
+    chunk_overlap: int = 320  # legacy fallback
     embedding_batch_size: int = 64
 
     # Embedding cache TTL (seconds)
@@ -59,6 +59,8 @@ class Settings(BaseAppSettings):
     course_service_url: str = "http://course-service:8000/api/v1"
     search_service_url: str = "http://search-service:8000/api/v1"
     internal_service_token: str = "change-me"
+    course_lifecycle_topic: str = "course.lifecycle"
+    relay_poll_interval_seconds: float = 2.0
 
     # Cleanup retention
     superseded_vector_retention_days: int = 7

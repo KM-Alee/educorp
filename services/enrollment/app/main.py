@@ -9,7 +9,8 @@ from redis.asyncio import Redis
 
 from app.api.v1 import router as v1_router
 from app.config import settings
-from educorp_common.database.session import create_async_engine
+from app.relay import EnrollmentOutboxRelay
+from educorp_common.database.session import create_async_engine, create_session_factory
 from educorp_common.errors import register_exception_handlers
 from educorp_common.middleware.correlation import CorrelationIdMiddleware
 from educorp_common.middleware.logging import setup_logging
@@ -33,8 +34,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     set_redis(redis)
 
+    session_factory = create_session_factory(engine)
+    relay: EnrollmentOutboxRelay | None = None
+    try:
+        relay = EnrollmentOutboxRelay(session_factory)
+        await relay.start()
+    except Exception as exc:
+        logger.warning("Enrollment outbox relay unavailable", exc_info=exc)
+        relay = None
+
     yield
 
+    if relay is not None:
+        await relay.stop()
     await redis.close()
     await engine.dispose()
     logger.info("Service stopped", service=settings.service_name)

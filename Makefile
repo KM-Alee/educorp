@@ -6,7 +6,8 @@
         kafka-topics kafka-list \
         test test-service test-coverage lint fmt \
         seed shell exec \
-        clean reset debug-service smoke-phase4 smoke-phase5
+        clean reset debug-service smoke-phase4 smoke-phase5 \
+        up-service rebuild-service recreate-service
 
 COMPOSE = docker compose
 SERVICE ?=
@@ -65,6 +66,15 @@ build: ## Build all service images
 
 build-service: ## Build single service (SERVICE=auth)
 	DOCKER_BUILDKIT=1 $(COMPOSE) build $(SERVICE)-service
+
+up-service: ## Start or refresh one service and its dependencies (SERVICE=auth)
+	$(COMPOSE) up -d $(SERVICE)-service
+
+rebuild-service: ## Rebuild and restart one service only (SERVICE=auth)
+	DOCKER_BUILDKIT=1 $(COMPOSE) up -d --build $(SERVICE)-service
+
+recreate-service: ## Recreate one service container without rebuilding (SERVICE=auth)
+	$(COMPOSE) up -d --force-recreate --no-deps $(SERVICE)-service
 
 ps: ## Show container status
 	$(COMPOSE) --profile full ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"

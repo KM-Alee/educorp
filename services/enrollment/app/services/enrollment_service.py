@@ -62,6 +62,7 @@ class EnrollmentService:
 
         student = await self._auth_client.get_user_summary(user_id=student_id)
         student_name = str(student.get("full_name") or "").strip()
+        student_email = str(student.get("email") or "").strip()
 
         missing_prereqs = await self._missing_prerequisites(
             student_id=student_id,
@@ -150,6 +151,8 @@ class EnrollmentService:
                 data={
                     "enrollment_id": str(enrollment.id),
                     "student_id": str(student_id),
+                    "student_email": student_email,
+                    "student_name": student_name,
                     "course_id": str(course_id),
                     "course_title": course["title"],
                 },

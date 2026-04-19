@@ -26,6 +26,14 @@ x-python-service: &python-service
   volumes:
     - ./shared:/app/shared:ro
 
+x-dev-worker: &dev-worker
+  <<: *python-service
+  command: ["watchfiles", "--filter", "python", "python", "-m", "app.worker", "/app/service", "/app/shared"]
+
+x-dev-celery-worker: &dev-celery-worker
+  <<: *python-service
+  command: ["watchfiles", "--filter", "python", "celery", "-A", "app.celery_app", "worker", "--loglevel=info", "/app/service", "/app/shared"]
+
 x-resource-small: &resource-small
   deploy:
     resources:
@@ -546,7 +554,7 @@ services:
         required: false
 
   publishing-worker:
-    <<: *python-service
+    <<: *dev-worker
     profiles: [app, full, debug]
     build:
       context: .
@@ -556,7 +564,6 @@ services:
         SERVICE_DIR: services/publishing
     environment:
       SERVICE_NAME: publishing-worker
-    command: ["python", "-m", "app.worker"]
     volumes:
       - ./shared:/app/shared:ro
       - ./services/publishing:/app/service
@@ -644,7 +651,7 @@ services:
         required: false
 
   notification-worker:
-    <<: *python-service
+    <<: *dev-celery-worker
     profiles: [app, full, debug]
     build:
       context: .
@@ -654,7 +661,6 @@ services:
         SERVICE_DIR: services/notification
     environment:
       SERVICE_NAME: notification-worker
-    command: ["celery", "-A", "app.celery_app", "worker", "--loglevel=info"]
     volumes:
       - ./shared:/app/shared:ro
       - ./services/notification:/app/service

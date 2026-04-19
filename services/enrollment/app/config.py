@@ -15,6 +15,8 @@ class Settings(BaseAppSettings):
     enrollment_lock_ttl_seconds: int = 30
     enrollment_status_cache_ttl_seconds: int = 900
     enrollment_idempotency_ttl_seconds: int = 900
+    enrollment_lifecycle_topic: str = "enrollment.lifecycle"
+    relay_poll_interval_seconds: float = 2.0
 
 
 settings = Settings()

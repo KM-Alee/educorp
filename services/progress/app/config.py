@@ -9,7 +9,9 @@ class Settings(BaseAppSettings):
     service_name: str = "progress-service"
     service_port: int = 8004
     internal_service_token: str = "change-me"
-    enrollment_service_url: str = "http://enrollment-service:8000/api/v1"
+    enrollment_service_url: str = "http://enrollment-service:8000/api/v1/enrollments"
+    progress_lifecycle_topic: str = "progress.lifecycle"
+    relay_poll_interval_seconds: float = 2.0
 
 
 settings = Settings()

@@ -337,6 +337,8 @@ class ProgressService:
                 "enrollment_id": str(enrollment_id),
                 "student_id": str(student_id),
                 "course_id": str(course_id),
+                "course_title": progress.course_title,
+                "student_name": progress.student_name,
                 "certificate_id": str(certificate.id),
                 "certificate_number": certificate.certificate_number,
                 "completed_at": completed_at.isoformat(),

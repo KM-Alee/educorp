@@ -98,6 +98,7 @@ class InternalUserSummaryOut(BaseModel):
     first_name: str
     last_name: str
     full_name: str
+    roles: list[str] = Field(default_factory=list)
 
 
 class TokenUserOut(BaseModel):

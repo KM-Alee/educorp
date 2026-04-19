@@ -8,7 +8,8 @@ from fastapi import FastAPI
 
 from app.api.v1 import router as v1_router
 from app.config import settings
-from educorp_common.database.session import create_async_engine
+from app.relay import ProgressOutboxRelay
+from educorp_common.database.session import create_async_engine, create_session_factory
 from educorp_common.errors import register_exception_handlers
 from educorp_common.middleware.correlation import CorrelationIdMiddleware
 from educorp_common.middleware.logging import setup_logging
@@ -27,8 +28,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     set_engine(engine)
 
+    session_factory = create_session_factory(engine)
+    relay: ProgressOutboxRelay | None = None
+    try:
+        relay = ProgressOutboxRelay(session_factory)
+        await relay.start()
+    except Exception as exc:
+        logger.warning("Progress outbox relay unavailable", exc_info=exc)
+        relay = None
+
     yield
 
+    if relay is not None:
+        await relay.stop()
     await engine.dispose()
     logger.info("Service stopped", service=settings.service_name)
 

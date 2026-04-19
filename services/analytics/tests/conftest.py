@@ -2,8 +2,22 @@ from __future__ import annotations
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.pool import StaticPool
 
+import app.models  # noqa: F401
+from app.dependencies import get_current_user, get_session, require_internal_service
 from app.main import create_app
+from educorp_common.auth.dependencies import CurrentUser
+from educorp_common.database.base import Base
+
+
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_sqlite(_type, _compiler, **_kwargs) -> str:
+    return "JSON"
 
 
 @pytest.fixture
@@ -13,8 +27,79 @@ def app():
 
 
 @pytest.fixture
-async def api_client(app):
-    """Provide an async HTTP test client."""
+async def db_engine():
+    engine = create_async_engine(
+        "sqlite+aiosqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as conn:
+        await conn.execute(text("ATTACH DATABASE ':memory:' AS analytics"))
+        await conn.run_sync(Base.metadata.create_all)
+    yield engine
+    await engine.dispose()
+
+
+@pytest.fixture
+def db_session_factory(db_engine):
+    return async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+
+
+@pytest.fixture
+async def db_session(db_session_factory):
+    async with db_session_factory() as session:
+        yield session
+        await session.rollback()
+
+
+@pytest.fixture
+def admin_user() -> CurrentUser:
+    return CurrentUser(
+        id="00000000-0000-0000-0000-000000000999",
+        email="admin@test.com",
+        roles=["admin"],
+        is_active=True,
+        is_verified=True,
+    )
+
+
+@pytest.fixture
+def instructor_user() -> CurrentUser:
+    return CurrentUser(
+        id="00000000-0000-0000-0000-000000000222",
+        email="instructor@test.com",
+        roles=["instructor"],
+        is_active=True,
+        is_verified=True,
+    )
+
+
+def _override_user(user: CurrentUser):
+    async def _inner() -> CurrentUser:
+        return user
+
+    return _inner
+
+
+@pytest.fixture
+async def api_client(db_session, admin_user):
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    app.dependency_overrides[get_current_user] = _override_user(admin_user)
+    app.dependency_overrides[require_internal_service] = lambda: None
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def instructor_client(db_session, instructor_user):
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    app.dependency_overrides[get_current_user] = _override_user(instructor_user)
+    app.dependency_overrides[require_internal_service] = lambda: None
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+    app.dependency_overrides.clear()

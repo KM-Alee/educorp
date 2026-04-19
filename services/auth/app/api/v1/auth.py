@@ -242,12 +242,14 @@ async def get_internal_user_summary(
 ) -> SuccessResponse[InternalUserSummaryOut]:
     service = AuthService(session, redis)
     user = await service.get_profile(user_id)
+    roles = await service._get_role_names(user.id)
     data = InternalUserSummaryOut(
         id=user.id,
         email=user.email,
         first_name=user.first_name,
         last_name=user.last_name,
         full_name=f"{user.first_name} {user.last_name}".strip(),
+        roles=roles,
     )
     return SuccessResponse(data=data, meta=build_meta())
 

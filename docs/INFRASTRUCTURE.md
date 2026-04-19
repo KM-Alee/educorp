@@ -72,7 +72,45 @@ All containers have resource limits defined via YAML anchors:
 | `x-resource-medium` | 512 MB | 1.0 | App services, workers, RabbitMQ, Jaeger, Grafana |
 | `x-resource-large` | 1 GB | 2.0 | PostgreSQL, MongoDB, Kafka, Temporal, Prometheus |
 
-### 2.3 `docker-compose.yml` structure
+### 2.3 Fast Dev Workflow
+
+The industry-standard dev loop is:
+
+1. Build an image only when dependencies or the Dockerfile change.
+2. Bind-mount source code into the container for normal code edits.
+3. Let the app process auto-reload inside the running container.
+4. Rebuild only the single affected service, not the whole stack.
+
+EduCorp now follows that pattern for Python services and workers:
+
+- API services run `uvicorn --reload` with source bind mounts.
+- Background workers run under `watchfiles`, so Python edits restart the worker process without a rebuild.
+- The repository root has a `.dockerignore` so Docker does not send the whole workspace history, caches, and local artifacts into every build context.
+
+Recommended commands:
+
+```bash
+make up-app                         # start the stack once
+make up-service SERVICE=auth        # start or refresh one service
+make rebuild-service SERVICE=auth   # only when auth dependencies/image changed
+make recreate-service SERVICE=auth  # restart container only, no rebuild
+```
+
+Use `rebuild-service` only for changes like:
+
+- `pyproject.toml`
+- `uv.lock`
+- `infra/docker/Dockerfile.service`
+- system package/runtime image changes
+
+Use `up-service` or `recreate-service` for:
+
+- Python source edits
+- config/env changes
+- route/service/repository changes
+- worker logic changes
+
+### 2.4 `docker-compose.yml` structure
 
 ```yaml
 x-service-defaults: &service-defaults
