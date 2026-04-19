@@ -24,11 +24,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting service", service=settings.service_name)
 
     engine = create_async_engine(settings.database_url)
-    from app.dependencies import set_engine, set_redis
+    from app.dependencies import set_engine
 
     set_engine(engine)
 
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    from app.dependencies import set_redis
+
     set_redis(redis)
 
     yield
@@ -46,7 +48,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.add_middleware(CorrelationIdMiddleware)
-    app.include_router(v1_router, prefix="/api/v1")
+    app.include_router(v1_router, prefix="/api/v1/enrollments")
     register_exception_handlers(app)
     return app
 

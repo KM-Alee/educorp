@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>EduCorp Routing Diagnostic</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #f5f5f5; }
+    .box { background: white; padding: 20px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #007bff; }
+    .success { border-left-color: #28a745; }
+    .warning { border-left-color: #ffc107; }
+    .error { border-left-color: #dc3545; }
+    h2 { margin-top: 0; color: #333; }
+    .code { background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    button { padding: 10px 20px; font-size: 14px; cursor: pointer; margin: 5px 0; }
+    .section { margin: 20px 0; }
+  </style>
+</head>
+<body>
+  <h1>🔍 EduCorp Routing Diagnostic Tool</h1>
+  
+  <div class="section">
+    <h2>Session Storage Check</h2>
+    <div class="box" id="sessionBox">Checking...</div>
+    <button onclick="checkSession()">Refresh Session Check</button>
+  </div>
+
+  <div class="section">
+    <h2>Routing Logic</h2>
+    <div class="box" id="routingBox">Checking...</div>
+  </div>
+
+  <div class="section">
+    <h2>Actions</h2>
+    <button onclick="clearStorageAndReload()">Clear Storage & Reload</button>
+    <button onclick="deleteSession()">Delete Session Only</button>
+    <button onclick="goToLogin()">Go to Login Page</button>
+    <button onclick="goToCatalog()">Go to Catalog</button>
+    <button onclick="goToCourses()">Go to Courses</button>
+  </div>
+
+  <script>
+    function checkSession() {
+      const sessionKey = 'educorp.phase1.session';
+      const stored = localStorage.getItem(sessionKey);
+      
+      let html = '';
+      
+      if (!stored) {
+        html += '<div class="warning">❌ No session found in localStorage</div>';
+        html += '<div class="code">Key: ' + sessionKey + '</div>';
+        html += '<p>You are not logged in. Go to <a href="/login">Login Page</a></p>';
+      } else {
+        try {
+          const session = JSON.parse(stored);
+          const user = session.user || {};
+          const roles = user.roles || [];
+          
+          html += '<div class="success">✅ Session found in localStorage</div>';
+          html += '<div class="code">';
+          html += 'Email: ' + (user.email || 'N/A') + '<br>';
+          html += 'Roles: [' + roles.join(', ') + ']<br>';
+          html += 'Token: ' + (session.accessToken ? 'Present' : 'Missing');
+          html += '</div>';
+          
+          // Check routing logic
+          const hasInstructor = roles.includes('instructor');
+          const hasAdmin = roles.includes('admin');
+          const expectedRoute = (hasInstructor || hasAdmin) ? '/app/courses' : '/app/catalog';
+          
+          const routingHtml = document.getElementById('routingBox');
+          routingHtml.className = 'box success';
+          routingHtml.innerHTML = 
+            '<strong>Routing Decision:</strong><br>' +
+            'Has instructor role: ' + hasInstructor + '<br>' +
+            'Has admin role: ' + hasAdmin + '<br>' +
+            '→ Expected route: <strong>' + expectedRoute + '</strong><br><br>' +
+            (expectedRoute === '/app/catalog' 
+              ? 'ℹ️ This account should see the CATALOG PAGE' 
+              : 'ℹ️ This account should see the COURSE WORKSPACE PAGE');
+        } catch (e) {
+          html += '<div class="error">❌ Session parsing failed: ' + e.message + '</div>';
+        }
+      }
+      
+      document.getElementById('sessionBox').innerHTML = html;
+    }
+
+    function clearStorageAndReload() {
+      localStorage.clear();
+      sessionStorage.clear();
+      location.href = '/login';
+    }
+
+    function deleteSession() {
+      localStorage.removeItem('educorp.phase1.session');
+      alert('Session deleted. Refresh the page to see the effect.');
+      location.reload();
+    }
+
+    function goToLogin() { location.href = '/login'; }
+    function goToCatalog() { location.href = '/app/catalog'; }
+    function goToCourses() { location.href = '/app/courses'; }
+
+    // Auto-check on load
+    checkSession();
+  </script>
+</body>
+</html>

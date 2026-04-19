@@ -1,13 +1,14 @@
 import { useState } from 'react'
 
 import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 
 import { searchCourses, type CourseSearchItem } from '../../lib/api'
 import { getErrorMessage } from '../../lib/types'
 
 function ResultCard({ course }: { course: CourseSearchItem }) {
   return (
-    <div className="course-item">
+    <Link className="course-item" to={`/app/catalog/${course.course_id}`}>
       <div className="course-item__info">
         <div className="course-item__title">{course.title}</div>
         <div className="course-item__meta">{course.short_description || 'No description'}</div>
@@ -17,7 +18,7 @@ function ResultCard({ course }: { course: CourseSearchItem }) {
         {course.difficulty ? <span className="badge">{course.difficulty}</span> : null}
         <span className="badge badge--accent">READY</span>
       </div>
-    </div>
+    </Link>
   )
 }
 

@@ -133,3 +133,7 @@ See the [docs/](docs/) directory for detailed design documentation.
 - `docs/FRONTEND.md` — web app structure, UI system, and route plan
 - `docs/PHASES.md` — backend and frontend delivery phases
 - `docs/PHASE3_IMPLEMENTATION_PLAN.md` — concrete implementation sequence for publishing and search
+
+
+#swagger
+http://localhost/api/v1/ai/docs

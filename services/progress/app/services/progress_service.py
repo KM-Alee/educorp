@@ -1,238 +1,219 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from decimal import Decimal
+import secrets
 from uuid import UUID, uuid4
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.certificate import Certificate
-from app.models.module_progress import ModuleProgress
-from app.models.student_progress import StudentProgress
 from app.repositories.certificate_repository import CertificateRepository
+from app.repositories.course_repository import CourseRepository
+from app.repositories.enrollment_repository import EnrollmentRepository
 from app.repositories.module_progress_repository import ModuleProgressRepository
 from app.repositories.outbox_repository import OutboxRepository
 from app.repositories.student_progress_repository import StudentProgressRepository
-from app.schemas.internal import ProgressInitRequest, ProgressInitResponse, ProgressSummaryResponse
+from app.repositories.user_repository import UserRepository
 from app.schemas.progress import (
-    CertificateDetailResponse,
-    CertificateSummary,
-    DashboardCourseProgress,
-    DashboardResponse,
-    ModuleCompletionResponse,
-    ProgressCertificateSummary,
-    ProgressDetailModule,
-    ProgressDetailResponse,
+    CertificateDetailOut,
+    CertificateOut,
+    DashboardCourseOut,
+    EnrollmentProgressOut,
+    ModuleCompletionCertificate,
+    ModuleCompletionOut,
+    ModuleProgressOut,
+    ProgressDashboardOut,
 )
-from app.services.enrollment_client import EnrollmentClient
-from educorp_common.auth.dependencies import CurrentUser
-from educorp_common.errors import ForbiddenError, NotFoundError
+from educorp_common.errors import EduCorpError, ForbiddenError, NotFoundError
 
 
 class ProgressService:
-    """Progress initialization, tracking, and certificate issuance."""
+    """Progress tracking workflows."""
 
-    def __init__(
-        self,
-        session: AsyncSession,
-        *,
-        enrollment_client: EnrollmentClient | None = None,
-    ) -> None:
+    def __init__(self, session: AsyncSession) -> None:
         self._session = session
-        self._progress = StudentProgressRepository(session)
-        self._modules = ModuleProgressRepository(session)
+        self._enrollments = EnrollmentRepository(session)
+        self._student_progress = StudentProgressRepository(session)
+        self._module_progress = ModuleProgressRepository(session)
         self._certificates = CertificateRepository(session)
+        self._courses = CourseRepository(session)
+        self._users = UserRepository(session)
         self._outbox = OutboxRepository(session)
-        self._enrollment_client = enrollment_client or EnrollmentClient()
 
-    async def initialize_progress(self, *, payload: ProgressInitRequest, correlation_id: str) -> ProgressInitResponse:
-        existing = await self._progress.get_by_enrollment_id(enrollment_id=payload.enrollment_id)
-        if existing is not None:
-            return ProgressInitResponse(
-                enrollment_id=payload.enrollment_id,
-                initialized=False,
-                status=existing.status,
-            )
+    async def get_enrollment_progress(
+        self, *, enrollment_id: UUID, user_id: UUID, roles: list[str]
+    ) -> EnrollmentProgressOut:
+        enrollment = await self._enrollments.get_by_id(enrollment_id)
+        if enrollment is None:
+            raise NotFoundError("Enrollment not found")
+        is_admin = "admin" in roles
+        if not is_admin and enrollment.student_id != user_id:
+            raise ForbiddenError("Access forbidden")
 
-        progress = StudentProgress(
-            enrollment_id=payload.enrollment_id,
-            student_id=payload.student_id,
-            course_id=payload.course_id,
-            course_title=payload.course_title,
-            progress_percent=Decimal("0.00"),
-            status="NOT_STARTED",
-            started_at=payload.enrolled_at,
-            last_activity_at=payload.enrolled_at,
-        )
-        await self._progress.create(progress)
-        module_rows = [
-            ModuleProgress(
-                student_progress_id=progress.id,
-                module_id=module.id,
-                module_title=module.title,
-                sort_order=module.sort_order,
-                is_required=module.is_required,
-                is_completed=False,
-                progress_percent=Decimal("0.00"),
-            )
-            for module in payload.modules
-        ]
-        await self._modules.create_many(module_rows)
-        await self._session.commit()
-        return ProgressInitResponse(
-            enrollment_id=payload.enrollment_id,
-            initialized=True,
-            status=progress.status,
-        )
-
-    async def get_progress_detail(
-        self,
-        *,
-        current_user: CurrentUser,
-        enrollment_id: UUID,
-    ) -> ProgressDetailResponse:
-        progress = await self._require_owned_progress(current_user=current_user, enrollment_id=enrollment_id)
-        modules = await self._modules.list_for_progress(student_progress_id=progress.id)
-        return self._to_detail(progress, modules)
-
-    async def get_progress_summary(self, *, enrollment_id: UUID) -> ProgressSummaryResponse:
-        progress = await self._progress.get_by_enrollment_id(enrollment_id=enrollment_id)
+        progress = await self._student_progress.get_by_enrollment(enrollment_id)
         if progress is None:
             raise NotFoundError("Progress not found")
-        return ProgressSummaryResponse(
-            enrollment_id=enrollment_id,
-            progress_percent=float(progress.progress_percent),
+
+        module_rows = await self._module_progress.list_with_titles(progress.id)
+        modules = [
+            ModuleProgressOut(
+                module_id=UUID(str(row["module_id"])),
+                module_title=str(row["title"]),
+                is_completed=bool(row["is_completed"]),
+                progress_percent=float(row["progress_percent"] or 0.0),
+                completed_at=row.get("completed_at"),
+            )
+            for row in module_rows
+        ]
+
+        return EnrollmentProgressOut(
+            enrollment_id=enrollment.enrollment_id,
+            course_id=enrollment.course_id,
+            progress_percent=float(progress.progress_percent or 0.0),
             status=progress.status,
+            started_at=progress.started_at,
+            last_activity_at=progress.last_activity_at,
+            modules=modules,
         )
 
     async def complete_module(
         self,
         *,
-        current_user: CurrentUser,
         enrollment_id: UUID,
         module_id: UUID,
+        student_id: UUID,
         correlation_id: str,
-    ) -> ModuleCompletionResponse:
-        progress = await self._require_owned_progress(current_user=current_user, enrollment_id=enrollment_id)
-        module = await self._modules.get_by_progress_and_module(
-            student_progress_id=progress.id,
-            module_id=module_id,
+    ) -> ModuleCompletionOut:
+        enrollment = await self._enrollments.get_by_id(enrollment_id)
+        if enrollment is None:
+            raise NotFoundError("Enrollment not found")
+        if enrollment.student_id != student_id:
+            raise ForbiddenError("Access forbidden")
+        if enrollment.status == "CANCELLED":
+            raise EduCorpError(
+                code="ENROLLMENT_CANCELLED",
+                message="Enrollment has been cancelled",
+                status_code=409,
+            )
+
+        progress = await self._student_progress.get_by_enrollment(enrollment_id)
+        if progress is None:
+            raise NotFoundError("Progress not found")
+
+        module_progress = await self._module_progress.get_by_student_progress_and_module(
+            progress.id, module_id
         )
-        if module is None:
+        if module_progress is None:
             raise NotFoundError("Module progress not found")
 
-        now = datetime.now(timezone.utc)
-        if not module.is_completed:
-            module.is_completed = True
-            module.progress_percent = Decimal("100.00")
-            module.started_at = module.started_at or now
-            module.completed_at = now
-            await self._modules.update(module)
-
-        modules = await self._modules.list_for_progress(student_progress_id=progress.id)
-        required_modules = [item for item in modules if item.is_required]
-        considered = required_modules or modules
-        completed_required = len([item for item in considered if item.is_completed])
-        total_required = len(considered)
-        percent = Decimal("100.00") if total_required == 0 else (Decimal(completed_required) / Decimal(total_required)) * Decimal("100")
-        progress.progress_percent = percent.quantize(Decimal("0.01"))
-        progress.last_activity_at = now
-        if completed_required == 0:
-            progress.status = "NOT_STARTED"
-        elif completed_required < total_required:
-            progress.status = "IN_PROGRESS"
-            progress.started_at = progress.started_at or now
-        else:
-            progress.status = "COMPLETED"
-            progress.completed_at = progress.completed_at or now
-        await self._progress.update(progress)
-
-        certificate_summary: ProgressCertificateSummary | None = None
-        course_completed = progress.status == "COMPLETED"
-        if course_completed:
-            certificate = await self._certificates.get_by_enrollment_id(enrollment_id=enrollment_id)
-            if certificate is None:
-                certificate = await self._create_certificate(progress=progress, current_user=current_user)
-                await self._outbox.write(
-                    aggregate_type="progress",
-                    aggregate_id=progress.id,
-                    event_type="CourseCompleted",
-                    data={
-                        "enrollment_id": str(progress.enrollment_id),
-                        "student_id": str(progress.student_id),
-                        "course_id": str(progress.course_id),
-                        "certificate_id": str(certificate.id),
-                        "certificate_number": certificate.certificate_number,
-                        "completed_at": progress.completed_at.isoformat() if progress.completed_at else now.isoformat(),
-                    },
-                    metadata=self._event_metadata(correlation_id, progress.student_id),
-                    correlation_id=self._parse_uuid(correlation_id),
-                )
-                await self._session.commit()
-                await self._enrollment_client.mark_completed(
-                    enrollment_id=progress.enrollment_id,
-                    completed_at=progress.completed_at or now,
-                )
-            else:
-                await self._session.commit()
-            certificate_summary = ProgressCertificateSummary(
-                id=certificate.id,
-                certificate_number=certificate.certificate_number,
-                issued_at=certificate.issued_at,
+        if module_progress.is_completed:
+            overall_percent = float(progress.progress_percent or 0.0)
+            certificate = await self._certificates.get_by_enrollment(enrollment_id)
+            return ModuleCompletionOut(
+                module_id=module_id,
+                is_completed=True,
+                completed_at=module_progress.completed_at,
+                overall_progress_percent=overall_percent,
+                course_completed=progress.status == "COMPLETED",
+                certificate=_certificate_payload(certificate),
             )
-        else:
-            await self._session.commit()
 
-        return ModuleCompletionResponse(
+        now = datetime.now(timezone.utc)
+        module_progress.is_completed = True
+        module_progress.progress_percent = 100.0
+        module_progress.completed_at = now
+        if module_progress.started_at is None:
+            module_progress.started_at = now
+        await self._module_progress.update(module_progress)
+
+        total_modules = await self._module_progress.count_total(progress.id)
+        completed_modules = await self._module_progress.count_completed(progress.id)
+        overall_percent = _calculate_percent(completed_modules, total_modules)
+
+        progress.progress_percent = overall_percent
+        if progress.started_at is None:
+            progress.started_at = now
+        progress.last_activity_at = now
+
+        course_completed = total_modules > 0 and completed_modules == total_modules
+        certificate = None
+        if course_completed:
+            progress.status = "COMPLETED"
+            progress.completed_at = now
+            progress.progress_percent = 100.0
+            await self._enrollments.mark_completed(enrollment_id)
+            certificate = await self._issue_certificate(
+                enrollment_id=enrollment_id,
+                student_id=student_id,
+                course_id=enrollment.course_id,
+                completed_at=now,
+                correlation_id=correlation_id,
+            )
+        elif progress.status == "NOT_STARTED":
+            progress.status = "IN_PROGRESS"
+
+        await self._student_progress.update(progress)
+
+        return ModuleCompletionOut(
             module_id=module_id,
             is_completed=True,
-            completed_at=module.completed_at,
-            overall_progress_percent=float(progress.progress_percent),
+            completed_at=module_progress.completed_at,
+            overall_progress_percent=float(progress.progress_percent or 0.0),
             course_completed=course_completed,
-            certificate=certificate_summary,
+            certificate=_certificate_payload(certificate),
         )
 
-    async def get_dashboard(self, *, current_user: CurrentUser) -> DashboardResponse:
-        student_id = UUID(current_user["id"])
-        progress_rows = await self._progress.list_for_student(student_id=student_id)
-        certificates = await self._certificates.count_for_student(student_id=student_id)
-        completed_courses = len([item for item in progress_rows if item.status == "COMPLETED"])
-        active_courses = len([item for item in progress_rows if item.status != "COMPLETED"])
-        return DashboardResponse(
-            active_courses=active_courses,
-            completed_courses=completed_courses,
-            total_certificates=certificates,
-            courses=[
-                DashboardCourseProgress(
-                    course_id=item.course_id,
-                    course_title=item.course_title,
-                    progress_percent=float(item.progress_percent),
-                    status=item.status,
-                    last_activity_at=item.last_activity_at,
-                )
-                for item in progress_rows
-            ],
+    async def get_dashboard(self, student_id: UUID) -> ProgressDashboardOut:
+        query = text(
+            "SELECT sp.course_id, sp.progress_percent, sp.status, sp.last_activity_at, c.title "
+            "FROM progress.student_progress sp "
+            "JOIN course.courses c ON c.id = sp.course_id "
+            "WHERE sp.student_id = :student_id AND c.deleted_at IS NULL "
+            "ORDER BY sp.last_activity_at DESC NULLS LAST"
         )
-
-    async def list_certificates(self, *, current_user: CurrentUser) -> list[CertificateSummary]:
-        certificates = await self._certificates.list_for_student(student_id=UUID(current_user["id"]))
-        return [
-            CertificateSummary(
-                id=certificate.id,
-                enrollment_id=certificate.enrollment_id,
-                course_id=certificate.course_id,
-                course_title=certificate.course_title,
-                certificate_number=certificate.certificate_number,
-                issued_at=certificate.issued_at,
+        result = await self._session.execute(query, {"student_id": str(student_id)})
+        rows = result.mappings().all()
+        courses = [
+            DashboardCourseOut(
+                course_id=UUID(str(row["course_id"])),
+                course_title=str(row["title"]),
+                progress_percent=float(row["progress_percent"] or 0.0),
+                status=str(row["status"]),
+                last_activity_at=row.get("last_activity_at"),
             )
-            for certificate in certificates
+            for row in rows
         ]
 
-    async def get_certificate_detail(self, *, certificate_id: UUID) -> CertificateDetailResponse:
-        certificate = await self._certificates.get_by_id(certificate_id=certificate_id)
+        completed_courses = len([c for c in courses if c.status == "COMPLETED"])
+        active_courses = len(courses) - completed_courses
+        total_certificates = len(await self._certificates.list_by_student(student_id))
+
+        return ProgressDashboardOut(
+            active_courses=active_courses,
+            completed_courses=completed_courses,
+            total_certificates=total_certificates,
+            courses=courses,
+        )
+
+    async def list_certificates(self, student_id: UUID) -> list[CertificateOut]:
+        certificates = await self._certificates.list_by_student(student_id)
+        return [
+            CertificateOut(
+                id=cert.id,
+                course_id=cert.course_id,
+                course_title=cert.course_title,
+                certificate_number=cert.certificate_number,
+                issued_at=cert.issued_at,
+            )
+            for cert in certificates
+        ]
+
+    async def get_certificate(self, certificate_id: UUID) -> CertificateDetailOut:
+        certificate = await self._certificates.get_by_id(certificate_id)
         if certificate is None:
             raise NotFoundError("Certificate not found")
-        return CertificateDetailResponse(
+        return CertificateDetailOut(
             id=certificate.id,
             enrollment_id=certificate.enrollment_id,
             student_id=certificate.student_id,
@@ -241,77 +222,99 @@ class ProgressService:
             student_name=certificate.student_name,
             certificate_number=certificate.certificate_number,
             issued_at=certificate.issued_at,
-            metadata=certificate.certificate_metadata,
+            metadata=certificate.metadata or {},
         )
 
-    async def _require_owned_progress(
+    async def _issue_certificate(
         self,
         *,
-        current_user: CurrentUser,
         enrollment_id: UUID,
-    ) -> StudentProgress:
-        progress = await self._progress.get_by_enrollment_id(enrollment_id=enrollment_id)
-        if progress is None:
-            raise NotFoundError("Progress not found")
-        if "admin" in current_user["roles"]:
-            return progress
-        if progress.student_id != UUID(current_user["id"]):
-            raise ForbiddenError("You do not have access to this progress")
-        return progress
-
-    async def _create_certificate(
-        self,
-        *,
-        progress: StudentProgress,
-        current_user: CurrentUser,
+        student_id: UUID,
+        course_id: UUID,
+        completed_at: datetime,
+        correlation_id: str,
     ) -> Certificate:
-        sequence = await self._certificates.count_total() + 1
+        existing = await self._certificates.get_by_enrollment(enrollment_id)
+        if existing is not None:
+            return existing
+
+        course_title = await self._courses.get_course_title(course_id)
+        if course_title is None:
+            raise NotFoundError("Course not found")
+        student_name = await self._users.get_full_name(student_id)
+        if student_name is None:
+            raise NotFoundError("Student not found")
+
+        certificate_number = await self._generate_certificate_number()
         certificate = Certificate(
-            enrollment_id=progress.enrollment_id,
-            student_id=progress.student_id,
-            course_id=progress.course_id,
-            course_title=progress.course_title,
-            student_name=current_user.get("email", f"Student {progress.student_id}"),
-            certificate_number=f"SC-{datetime.now(timezone.utc).year}-{sequence:05d}",
-            certificate_metadata={"issued_for_status": progress.status},
+            enrollment_id=enrollment_id,
+            student_id=student_id,
+            course_id=course_id,
+            course_title=course_title,
+            student_name=student_name,
+            certificate_number=certificate_number,
+            issued_at=completed_at,
+            metadata={},
         )
-        return await self._certificates.create(certificate)
+        await self._certificates.create(certificate)
 
-    @staticmethod
-    def _to_detail(progress: StudentProgress, modules: list[ModuleProgress]) -> ProgressDetailResponse:
-        return ProgressDetailResponse(
-            enrollment_id=progress.enrollment_id,
-            course_id=progress.course_id,
-            course_title=progress.course_title,
-            progress_percent=float(progress.progress_percent),
-            status=progress.status,
-            started_at=progress.started_at,
-            last_activity_at=progress.last_activity_at,
-            completed_at=progress.completed_at,
-            modules=[
-                ProgressDetailModule(
-                    module_id=module.module_id,
-                    module_title=module.module_title,
-                    is_completed=module.is_completed,
-                    progress_percent=float(module.progress_percent),
-                    completed_at=module.completed_at,
-                )
-                for module in modules
-            ],
+        await self._outbox.write(
+            aggregate_type="enrollment",
+            aggregate_id=enrollment_id,
+            event_type="CourseCompleted",
+            data={
+                "enrollment_id": str(enrollment_id),
+                "student_id": str(student_id),
+                "course_id": str(course_id),
+                "certificate_id": str(certificate.id),
+                "certificate_number": certificate.certificate_number,
+                "completed_at": completed_at.isoformat(),
+            },
+            metadata=self._event_metadata(correlation_id, student_id),
+            correlation_id=self._parse_uuid(correlation_id),
+        )
+        return certificate
+
+    async def _generate_certificate_number(self) -> str:
+        year = datetime.now(timezone.utc).year
+        for _ in range(10):
+            suffix = secrets.randbelow(100000)
+            certificate_number = f"SC-{year}-{suffix:05d}"
+            if not await self._certificates.exists_number(certificate_number):
+                return certificate_number
+        raise EduCorpError(
+            code="CERTIFICATE_NUMBER_GENERATION_FAILED",
+            message="Unable to generate certificate number",
+            status_code=500,
         )
 
-    @staticmethod
-    def _parse_uuid(value: str) -> UUID:
+    def _event_metadata(self, correlation_id: str, actor_id: UUID) -> dict[str, str]:
+        return {
+            "correlation_id": correlation_id,
+            "source_service": "progress",
+            "actor_id": str(actor_id),
+        }
+
+    def _parse_uuid(self, value: str) -> UUID:
         try:
             return UUID(value)
         except ValueError:
             return uuid4()
 
-    @staticmethod
-    def _event_metadata(correlation_id: str, actor_id: UUID) -> dict[str, str | int]:
-        return {
-            "correlation_id": correlation_id,
-            "actor_id": str(actor_id),
-            "occurred_at": datetime.now(timezone.utc).isoformat(),
-            "version": 1,
-        }
+
+def _calculate_percent(completed: int, total: int) -> float:
+    if total <= 0:
+        return 0.0
+    return round((completed / total) * 100.0, 2)
+
+
+def _certificate_payload(
+    certificate: Certificate | None,
+) -> ModuleCompletionCertificate | None:
+    if certificate is None:
+        return None
+    return ModuleCompletionCertificate(
+        id=certificate.id,
+        certificate_number=certificate.certificate_number,
+        issued_at=certificate.issued_at,
+    )

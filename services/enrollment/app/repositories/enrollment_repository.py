@@ -9,7 +9,7 @@ from app.models.enrollment import Enrollment
 
 
 class EnrollmentRepository:
-    """Data access for enrollment records."""
+    """Data access for enrollments."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -30,7 +30,13 @@ class EnrollmentRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_by_student_course(self, *, student_id: UUID, course_id: UUID) -> Enrollment | None:
+    async def get_by_idempotency_key(self, idempotency_key: str) -> Enrollment | None:
+        result = await self._session.execute(
+            select(Enrollment).where(Enrollment.idempotency_key == idempotency_key)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_student_course(self, student_id: UUID, course_id: UUID) -> Enrollment | None:
         result = await self._session.execute(
             select(Enrollment).where(
                 Enrollment.student_id == student_id,
@@ -39,13 +45,7 @@ class EnrollmentRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_by_idempotency_key(self, *, idempotency_key: str) -> Enrollment | None:
-        result = await self._session.execute(
-            select(Enrollment).where(Enrollment.idempotency_key == idempotency_key)
-        )
-        return result.scalar_one_or_none()
-
-    async def list_for_student(
+    async def list_by_student(
         self,
         *,
         student_id: UUID,
@@ -57,19 +57,19 @@ class EnrollmentRepository:
         if status:
             query = query.where(Enrollment.status == status)
 
-        count_result = await self._session.execute(
-            select(func.count()).select_from(query.subquery())
+        count_sub = query.subquery()
+        total_result = await self._session.execute(
+            select(func.count()).select_from(count_sub)
         )
-        total = int(count_result.scalar_one())
+        total = int(total_result.scalar_one())
 
-        result = await self._session.execute(
-            query.order_by(Enrollment.enrolled_at.desc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        )
+        query = query.order_by(Enrollment.enrolled_at.desc()).offset(
+            (page - 1) * page_size
+        ).limit(page_size)
+        result = await self._session.execute(query)
         return list(result.scalars().all()), total
 
-    async def count_active_for_course(self, *, course_id: UUID) -> int:
+    async def count_active_by_course(self, course_id: UUID) -> int:
         result = await self._session.execute(
             select(func.count()).select_from(Enrollment).where(
                 Enrollment.course_id == course_id,
@@ -78,18 +78,11 @@ class EnrollmentRepository:
         )
         return int(result.scalar_one())
 
-    async def list_completed_course_ids(self, *, student_id: UUID, course_ids: list[UUID]) -> set[UUID]:
-        if not course_ids:
-            return set()
+    async def list_completed_courses(self, student_id: UUID) -> list[UUID]:
         result = await self._session.execute(
             select(Enrollment.course_id).where(
                 Enrollment.student_id == student_id,
                 Enrollment.status == "COMPLETED",
-                Enrollment.course_id.in_(course_ids),
             )
         )
-        return set(result.scalars().all())
-
-    async def list_all(self) -> list[Enrollment]:
-        result = await self._session.execute(select(Enrollment))
         return list(result.scalars().all())

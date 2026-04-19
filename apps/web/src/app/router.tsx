@@ -10,6 +10,7 @@ import {
 } from '../features/auth/AuthPages'
 import { CatalogPage, SearchPage } from '../features/catalog/CatalogPages'
 import { CourseEditorPage, CourseWorkspacePage } from '../features/courses/CoursePages'
+import { StudentCoursePage } from '../features/courses/StudentCoursePage'
 import { ProfilePage } from '../features/profile/ProfilePage'
 import {
   clearSession,
@@ -158,6 +159,7 @@ export function AppRoutes() {
           <Route index element={<NotFoundRedirect />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="catalog" element={<CatalogPage />} />
+          <Route path="catalog/:courseId" element={<StudentCoursePage />} />
           <Route path="search" element={<SearchPage />} />
           <Route element={<RoleRoute roles={['instructor', 'admin']} />}>
             <Route path="courses" element={<CourseWorkspacePage />} />

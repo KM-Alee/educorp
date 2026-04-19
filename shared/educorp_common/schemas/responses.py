@@ -12,6 +12,7 @@ class ResponseMeta(BaseModel):
 
     correlation_id: str | None = None
     timestamp: str | None = None
+    idempotent_hit: bool | None = None
 
 
 class SuccessResponse(BaseModel, Generic[T]):

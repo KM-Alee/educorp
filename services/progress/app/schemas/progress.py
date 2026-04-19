@@ -6,7 +6,9 @@ from uuid import UUID
 from pydantic import BaseModel
 
 
-class ProgressDetailModule(BaseModel):
+class ModuleProgressOut(BaseModel):
+    """Module progress entry."""
+
     module_id: UUID
     module_title: str
     is_completed: bool
@@ -14,58 +16,31 @@ class ProgressDetailModule(BaseModel):
     completed_at: datetime | None = None
 
 
-class ProgressCertificateSummary(BaseModel):
-    id: UUID
-    certificate_number: str
-    issued_at: datetime
+class EnrollmentProgressOut(BaseModel):
+    """Enrollment progress details."""
 
-
-class ProgressDetailResponse(BaseModel):
     enrollment_id: UUID
     course_id: UUID
-    course_title: str
     progress_percent: float
     status: str
     started_at: datetime | None = None
     last_activity_at: datetime | None = None
-    completed_at: datetime | None = None
-    modules: list[ProgressDetailModule]
+    modules: list[ModuleProgressOut]
 
 
-class ModuleCompletionResponse(BaseModel):
-    module_id: UUID
-    is_completed: bool
-    completed_at: datetime | None = None
-    overall_progress_percent: float
-    course_completed: bool
-    certificate: ProgressCertificateSummary | None = None
+class CertificateOut(BaseModel):
+    """Certificate summary."""
 
-
-class DashboardCourseProgress(BaseModel):
-    course_id: UUID
-    course_title: str
-    progress_percent: float
-    status: str
-    last_activity_at: datetime | None = None
-
-
-class DashboardResponse(BaseModel):
-    active_courses: int
-    completed_courses: int
-    total_certificates: int
-    courses: list[DashboardCourseProgress]
-
-
-class CertificateSummary(BaseModel):
     id: UUID
-    enrollment_id: UUID
     course_id: UUID
     course_title: str
     certificate_number: str
     issued_at: datetime
 
 
-class CertificateDetailResponse(BaseModel):
+class CertificateDetailOut(BaseModel):
+    """Certificate detail response."""
+
     id: UUID
     enrollment_id: UUID
     student_id: UUID
@@ -75,3 +50,41 @@ class CertificateDetailResponse(BaseModel):
     certificate_number: str
     issued_at: datetime
     metadata: dict
+
+
+class ModuleCompletionCertificate(BaseModel):
+    """Certificate info returned on completion."""
+
+    id: UUID
+    certificate_number: str
+    issued_at: datetime
+
+
+class ModuleCompletionOut(BaseModel):
+    """Module completion response."""
+
+    module_id: UUID
+    is_completed: bool
+    completed_at: datetime | None = None
+    overall_progress_percent: float
+    course_completed: bool
+    certificate: ModuleCompletionCertificate | None = None
+
+
+class DashboardCourseOut(BaseModel):
+    """Progress summary for a course."""
+
+    course_id: UUID
+    course_title: str
+    progress_percent: float
+    status: str
+    last_activity_at: datetime | None = None
+
+
+class ProgressDashboardOut(BaseModel):
+    """Progress dashboard response."""
+
+    active_courses: int
+    completed_courses: int
+    total_certificates: int
+    courses: list[DashboardCourseOut]

@@ -19,7 +19,11 @@ from app.services.progress_service import ProgressService
 from educorp_common.middleware.correlation import get_correlation_id
 from educorp_common.schemas.responses import ResponseMeta, SuccessResponse
 
+from app.api.v1.progress import router as progress_router
+
 router = APIRouter()
+
+router.include_router(progress_router)
 
 
 def _meta() -> ResponseMeta:

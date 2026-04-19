@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,7 +9,7 @@ from app.models.certificate import Certificate
 
 
 class CertificateRepository:
-    """Data access for completion certificates."""
+    """Certificate data access."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -17,19 +19,19 @@ class CertificateRepository:
         await self._session.flush()
         return certificate
 
-    async def get_by_enrollment_id(self, *, enrollment_id) -> Certificate | None:
+    async def get_by_enrollment(self, enrollment_id: UUID) -> Certificate | None:
         result = await self._session.execute(
             select(Certificate).where(Certificate.enrollment_id == enrollment_id)
         )
         return result.scalar_one_or_none()
 
-    async def get_by_id(self, *, certificate_id) -> Certificate | None:
+    async def get_by_id(self, certificate_id: UUID) -> Certificate | None:
         result = await self._session.execute(
             select(Certificate).where(Certificate.id == certificate_id)
         )
         return result.scalar_one_or_none()
 
-    async def list_for_student(self, *, student_id) -> list[Certificate]:
+    async def list_by_student(self, student_id: UUID) -> list[Certificate]:
         result = await self._session.execute(
             select(Certificate)
             .where(Certificate.student_id == student_id)
@@ -37,12 +39,10 @@ class CertificateRepository:
         )
         return list(result.scalars().all())
 
-    async def count_for_student(self, *, student_id) -> int:
+    async def exists_number(self, certificate_number: str) -> bool:
         result = await self._session.execute(
-            select(func.count()).select_from(Certificate).where(Certificate.student_id == student_id)
+            select(func.count()).select_from(Certificate).where(
+                Certificate.certificate_number == certificate_number
+            )
         )
-        return int(result.scalar_one())
-
-    async def count_total(self) -> int:
-        result = await self._session.execute(select(func.count()).select_from(Certificate))
-        return int(result.scalar_one())
+        return int(result.scalar_one()) > 0

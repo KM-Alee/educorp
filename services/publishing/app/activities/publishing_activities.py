@@ -17,11 +17,13 @@ from app.repositories.course_version_repository import CourseVersionRepository
 from app.repositories.publishing_step_repository import PublishingStepRepository
 from app.repositories.version_artifact_repository import VersionArtifactRepository
 from app.repositories.version_manifest_repository import VersionManifestRepository
+from app.services.course_activation_client import CourseActivationClient
 from app.services.artifact_storage_service import ArtifactStorageService, read_object
 from app.services.chunking_service import ChunkingService, ContentChunk
 from app.services.embedding_service import EmbeddingService
 from app.services.extraction_service import ExtractionService
 from app.services.qdrant_service import QdrantService, build_qdrant_point
+from app.services.version_service import PublishingVersionService
 from app.workflows.types import (
     ArtifactActivityInput,
     IndexArtifactsInput,
@@ -569,6 +571,21 @@ class PublishingActivities:
                 version.processing_completed_at = now
                 version.ready_at = now
                 await version_repo.update(version)
+
+                activation_client = CourseActivationClient()
+                await activation_client.activate_course(
+                    course_id=version.course_id,
+                    version_id=version.id,
+                )
+
+                activation_service = PublishingVersionService(session)
+                activated_version, _superseded_id = await activation_service.activate_version(
+                    version_id=version.id,
+                )
+
+                await activation_client.notify_search_activated(
+                    course_id=activated_version.course_id,
+                )
 
                 await _mark_step(session, version_id, STEP_FINALIZE, "COMPLETED")
                 await session.commit()

@@ -21,7 +21,11 @@ from app.services.enrollment_service import EnrollmentService
 from educorp_common.middleware.correlation import get_correlation_id
 from educorp_common.schemas.responses import Pagination, PaginatedResponse, ResponseMeta, SuccessResponse
 
+from app.api.v1.enrollments import router as enrollments_router
+
 router = APIRouter()
+
+router.include_router(enrollments_router)
 
 
 def _meta() -> ResponseMeta:
