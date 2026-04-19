@@ -20,6 +20,9 @@ class EmbeddingClient:
         )
 
     async def embed_query(self, text: str) -> list[float]:
+        if settings.ai_provider_mode == "fake":
+            seed = sum(ord(ch) for ch in text[:128]) or 1
+            return [float((seed + index) % 100) / 100.0 for index in range(16)]
         try:
             response = await self._client.embeddings.create(
                 model=settings.embedding_model,

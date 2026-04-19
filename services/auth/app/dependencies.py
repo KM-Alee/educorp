@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from uuid import UUID
 
-from fastapi import Depends, Security
+from fastapi import Depends, Header, HTTPException, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import ExpiredSignatureError, JWTError
 from redis.asyncio import Redis
@@ -49,6 +49,13 @@ async def get_redis() -> Redis:
     if _redis is None:
         raise RuntimeError("Redis not initialized")
     return _redis
+
+
+async def require_internal_service(
+    x_internal_service_token: str | None = Header(default=None, alias="X-Internal-Service-Token"),
+) -> None:
+    if x_internal_service_token != settings.internal_service_token:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
 
 async def get_current_user(
@@ -109,6 +116,7 @@ __all__ = [
     "get_current_user",
     "get_session",
     "get_redis",
+    "require_internal_service",
     "require_roles",
     "set_engine",
     "set_redis",

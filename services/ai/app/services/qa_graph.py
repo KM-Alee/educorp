@@ -23,7 +23,7 @@ from educorp_common.errors import EduCorpError, ForbiddenError
 logger = structlog.get_logger()
 
 SYSTEM_PROMPT = (
-    "You are a course assistant for \"{course_title}\".\n"
+    'You are a course assistant for "{course_title}".\n'
     "Your job is to answer the student's question using ONLY the provided course material excerpts.\n\n"
     "RULES:\n"
     "1. ONLY use information from the provided excerpts. Never use external knowledge.\n"
@@ -120,22 +120,60 @@ class QAService:
         }
         return await self._graph.ainvoke(state)
 
+    async def continue_clarification(
+        self,
+        *,
+        course_id: UUID,
+        original_query_id: UUID,
+        clarification: str,
+        user_id: UUID,
+        role_scope: str,
+    ) -> QAState:
+        key = self._clarify_key(original_query_id)
+        raw = await self._redis.get(key)
+        if not raw:
+            raise EduCorpError(
+                code="CLARIFICATION_CONTEXT_EXPIRED",
+                message="Clarification context expired. Ask a new question.",
+                status_code=410,
+            )
+        import json
+
+        payload = json.loads(raw)
+        if payload.get("course_id") != str(course_id) or payload.get("user_id") != str(user_id):
+            raise EduCorpError(
+                code="CLARIFICATION_CONTEXT_INVALID",
+                message="Clarification does not match the original question.",
+                status_code=409,
+            )
+        base_question = str(payload.get("question") or "")
+        module_id_raw = payload.get("module_id")
+        question = f"{base_question}\n\nClarification: {clarification}".strip()
+        return await self.ask(
+            course_id=course_id,
+            question=question,
+            module_id=None if not module_id_raw else UUID(module_id_raw),
+            user_id=user_id,
+            role_scope=role_scope,
+        )
+
     async def _validate(self, state: QAState) -> QAState:
         course_id = state["course_id"]
         user_id = state["user_id"]
         role_scope = state["role_scope"]
 
-        rate_limit = (
-            settings.rate_limit_student_per_window
-            if role_scope == "student"
-            else settings.rate_limit_instructor_per_window
-        )
-        rate_key = f"ratelimit:ai:{user_id}:{role_scope}"
-        await self._rate_limiter.enforce(
-            key=rate_key,
-            limit=rate_limit,
-            window_seconds=settings.rate_limit_window_seconds,
-        )
+        if role_scope != "admin":
+            rate_limit = (
+                settings.rate_limit_student_per_window
+                if role_scope == "student"
+                else settings.rate_limit_instructor_per_window
+            )
+            rate_key = f"ratelimit:ai:{user_id}:{role_scope}"
+            await self._rate_limiter.enforce(
+                key=rate_key,
+                limit=rate_limit,
+                window_seconds=settings.rate_limit_window_seconds,
+            )
 
         version_id, course_title = await self._repo.get_ready_course_version(course_id)
         if version_id is None:
@@ -203,6 +241,7 @@ class QAService:
             return {"has_sufficient_context": False, "is_ambiguous": False}
 
         avg_score = sum(scores) / len(scores) if scores else 0
+        top_gap = (scores[0] - scores[1]) if len(scores) > 1 else scores[0] if scores else 0.0
         confidence = (
             "high"
             if avg_score >= HIGH_CONFIDENCE_THRESHOLD
@@ -213,15 +252,18 @@ class QAService:
 
         return {
             "has_sufficient_context": True,
-            "is_ambiguous": False,
+            "is_ambiguous": bool(
+                state.get("module_id") is None
+                and len(chunks) >= 2
+                and top_gap < 0.08
+                and avg_score < HIGH_CONFIDENCE_THRESHOLD
+            ),
             "confidence": confidence,
         }
 
     async def _generate(self, state: QAState) -> QAState:
         chunks = state.get("chunks", [])[: settings.max_context_chunks]
-        formatted = "\n\n".join(
-            _format_chunk(i + 1, chunk) for i, chunk in enumerate(chunks)
-        )
+        formatted = "\n\n".join(_format_chunk(i + 1, chunk) for i, chunk in enumerate(chunks))
         messages = [
             {
                 "role": "system",
@@ -257,6 +299,7 @@ class QAService:
         }
 
     async def _clarify(self, state: QAState) -> QAState:
+        await self._store_clarification_context(state)
         return {
             "answer": CLARIFY_MESSAGE,
             "citations": [],
@@ -270,6 +313,13 @@ class QAService:
         invalid_refs = invalid_citation_refs(state.get("answer", ""), len(state.get("chunks", [])))
         if invalid_refs:
             logger.warning("Invalid citation references", invalid_refs=invalid_refs)
+            return {
+                "answer": REFUSAL_MESSAGE,
+                "citations": [],
+                "confidence": "low",
+                "response_type": "refusal",
+                "tokens_used": state.get("tokens_used", {"input": 0, "output": 0}),
+            }
         return {"citations": citations}
 
     async def _log_and_emit(self, state: QAState) -> QAState:
@@ -327,6 +377,29 @@ class QAService:
 
         return state
 
+    async def _store_clarification_context(self, state: QAState) -> None:
+        import json
+
+        key = self._clarify_key(state["query_id"])
+        await self._redis.setex(
+            key,
+            settings.clarify_context_ttl_seconds,
+            json.dumps(
+                {
+                    "course_id": str(state["course_id"]),
+                    "user_id": str(state["user_id"]),
+                    "question": state["question"],
+                    "module_id": None
+                    if state.get("module_id") is None
+                    else str(state["module_id"]),
+                }
+            ),
+        )
+
+    @staticmethod
+    def _clarify_key(query_id: UUID) -> str:
+        return f"clarify:ai:{query_id}"
+
 
 def build_qa_graph(service: QAService):
     graph = StateGraph(QAState)
@@ -342,16 +415,24 @@ def build_qa_graph(service: QAService):
 
     graph.set_entry_point("validate")
 
-    graph.add_conditional_edges("validate", _route_after_validate, {
-        "cached": "log_and_emit",
-        "retrieve": "retrieve",
-    })
+    graph.add_conditional_edges(
+        "validate",
+        _route_after_validate,
+        {
+            "cached": "log_and_emit",
+            "retrieve": "retrieve",
+        },
+    )
     graph.add_edge("retrieve", "assess")
-    graph.add_conditional_edges("assess", _route_after_assess, {
-        "generate": "generate",
-        "refuse": "refuse",
-        "clarify": "clarify",
-    })
+    graph.add_conditional_edges(
+        "assess",
+        _route_after_assess,
+        {
+            "generate": "generate",
+            "refuse": "refuse",
+            "clarify": "clarify",
+        },
+    )
     graph.add_edge("generate", "build_citations")
     graph.add_edge("build_citations", "log_and_emit")
     graph.add_edge("refuse", "log_and_emit")
@@ -379,7 +460,7 @@ def _response_status(response_type: str) -> str:
     if response_type == "refusal":
         return "refused"
     if response_type == "clarification":
-        return "refused"
+        return "clarification_requested"
     return "answered"
 
 

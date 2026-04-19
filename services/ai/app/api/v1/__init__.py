@@ -1,9 +1,15 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Response, status
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from qdrant_client import QdrantClient
+from redis.asyncio import Redis
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.ask import router as ask_router
 from app.api.v1.instructor import router as instructor_router
+from app.dependencies import get_kafka_producer, get_mongo_db, get_qdrant, get_redis, get_session
 
 router = APIRouter()
 
@@ -18,7 +24,45 @@ async def health_live() -> dict[str, str]:
 
 
 @router.get("/health/ready")
-async def health_ready() -> dict[str, str]:
-    """Readiness probe — service is ready to accept traffic."""
-    # TODO: Add dependency checks in later phases
-    return {"status": "ready"}
+async def health_ready(
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
+    qdrant: QdrantClient = Depends(get_qdrant),
+    kafka_producer=Depends(get_kafka_producer),
+) -> dict[str, object]:
+    """Readiness probe — verify required dependencies are reachable."""
+    checks: dict[str, str] = {}
+
+    try:
+        await session.execute(text("SELECT 1"))
+        checks["postgres"] = "ok"
+    except Exception:
+        checks["postgres"] = "error"
+
+    try:
+        await redis.ping()
+        checks["redis"] = "ok"
+    except Exception:
+        checks["redis"] = "error"
+
+    try:
+        await mongo_db.command("ping")
+        checks["mongodb"] = "ok"
+    except Exception:
+        checks["mongodb"] = "error"
+
+    try:
+        qdrant.get_collections()
+        checks["qdrant"] = "ok"
+    except Exception:
+        checks["qdrant"] = "error"
+
+    checks["kafka"] = "ok" if kafka_producer is not None else "unavailable"
+
+    required = {name: checks[name] for name in ("postgres", "redis", "mongodb", "qdrant")}
+    status_value = "ready" if all(value == "ok" for value in required.values()) else "degraded"
+    if status_value != "ready":
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return {"status": status_value, "checks": checks}

@@ -5,6 +5,8 @@ from uuid import uuid4
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -13,6 +15,11 @@ from app.dependencies import get_current_user, get_session
 from app.main import create_app
 from educorp_common.auth.dependencies import CurrentUser
 from educorp_common.database.base import Base
+
+
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_sqlite(_type, _compiler, **_kwargs) -> str:
+    return "JSON"
 
 
 @pytest.fixture
@@ -30,7 +37,22 @@ async def db_engine():
     )
     async with engine.begin() as conn:
         await conn.execute(text("ATTACH DATABASE ':memory:' AS progress"))
+        await conn.execute(text("ATTACH DATABASE ':memory:' AS enrollment"))
         await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS enrollment.enrollments (
+                    id TEXT PRIMARY KEY,
+                    student_id TEXT NOT NULL,
+                    course_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    completed_at TEXT,
+                    updated_at TEXT
+                )
+                """
+            )
+        )
     yield engine
     await engine.dispose()
 

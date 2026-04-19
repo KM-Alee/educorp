@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import json
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
-from app.dependencies import get_current_user, get_kafka_producer, get_qdrant, get_redis, get_session
+from app.dependencies import (
+    get_current_user,
+    get_kafka_producer,
+    get_qdrant,
+    get_redis,
+    get_session,
+)
 from app.services.qa_graph import QAService
 from app.services.qa_streaming import QAStreamingService
 
@@ -44,8 +50,11 @@ def override_deps(app):
 
 
 @pytest.mark.asyncio
-async def test_ask_returns_answer(api_client, app, monkeypatch, override_deps):
+async def test_ask_returns_answer(api_client, monkeypatch, override_deps):
+    seen: dict[str, object] = {}
+
     async def fake_ask(self, **kwargs):
+        seen.update(kwargs)
         return {
             "query_id": uuid4(),
             "answer": "Answer [1]",
@@ -70,17 +79,58 @@ async def test_ask_returns_answer(api_client, app, monkeypatch, override_deps):
     assert resp.status_code == 200
 
     body = resp.json()
-    assert "data" in body
     assert body["data"]["answer"] == "Answer [1]"
+    assert seen["role_scope"] == "student"
 
 
 @pytest.mark.asyncio
-async def test_ask_stream_emits_events(api_client, app, monkeypatch, override_deps):
+async def test_ask_uses_admin_role_scope(api_client, app, monkeypatch, override_deps):
+    async def _admin_override():
+        return {
+            "id": str(uuid4()),
+            "email": "admin@example.com",
+            "roles": ["admin"],
+            "is_active": True,
+            "is_verified": True,
+        }
+
+    seen: dict[str, object] = {}
+
+    async def fake_ask(self, **kwargs):
+        seen.update(kwargs)
+        return {
+            "query_id": uuid4(),
+            "answer": "Admin answer [1]",
+            "citations": [],
+            "confidence": "high",
+            "version_id": uuid4(),
+            "response_type": "answer",
+        }
+
+    app.dependency_overrides[get_current_user] = _admin_override
+    monkeypatch.setattr(QAService, "ask", fake_ask)
+
+    resp = await api_client.post(
+        "/api/v1/ai/ask",
+        json={"course_id": str(uuid4()), "question": "What is AI?", "module_id": None},
+    )
+
+    assert resp.status_code == 200
+    assert seen["role_scope"] == "admin"
+
+
+@pytest.mark.asyncio
+async def test_ask_stream_emits_events(api_client, monkeypatch, override_deps):
+    seen: dict[str, object] = {}
+
     async def fake_stream(self, **kwargs):
+        seen.update(kwargs)
         yield {"event": "token", "data": json.dumps({"text": "Hello "})}
         yield {
             "event": "done",
-            "data": json.dumps({"query_id": str(uuid4()), "confidence": "high", "total_citations": 0}),
+            "data": json.dumps(
+                {"query_id": str(uuid4()), "confidence": "high", "total_citations": 0}
+            ),
         }
 
     monkeypatch.setattr(QAStreamingService, "stream", fake_stream)
@@ -88,13 +138,17 @@ async def test_ask_stream_emits_events(api_client, app, monkeypatch, override_de
     params = {"course_id": str(uuid4()), "question": "Hello?"}
     resp = await api_client.get("/api/v1/ai/ask/stream", params=params)
     assert resp.status_code == 200
+    assert seen["role_scope"] == "student"
     assert "event: token" in resp.text
     assert "event: done" in resp.text
 
 
 @pytest.mark.asyncio
-async def test_ask_clarify_returns_answer(api_client, app, monkeypatch, override_deps):
-    async def fake_ask(self, **kwargs):
+async def test_ask_clarify_uses_continue_clarification(api_client, monkeypatch, override_deps):
+    seen: dict[str, object] = {}
+
+    async def fake_continue(self, **kwargs):
+        seen.update(kwargs)
         return {
             "query_id": uuid4(),
             "answer": "Clarified [1]",
@@ -104,11 +158,12 @@ async def test_ask_clarify_returns_answer(api_client, app, monkeypatch, override
             "response_type": "answer",
         }
 
-    monkeypatch.setattr(QAService, "ask", fake_ask)
+    monkeypatch.setattr(QAService, "continue_clarification", fake_continue)
 
+    original_query_id = uuid4()
     payload = {
         "course_id": str(uuid4()),
-        "original_query_id": str(uuid4()),
+        "original_query_id": str(original_query_id),
         "clarification": "More details",
     }
     resp = await api_client.post("/api/v1/ai/ask/clarify", json=payload)
@@ -116,3 +171,5 @@ async def test_ask_clarify_returns_answer(api_client, app, monkeypatch, override
 
     body = resp.json()
     assert body["data"]["answer"] == "Clarified [1]"
+    assert seen["original_query_id"] == original_query_id
+    assert seen["role_scope"] == "student"

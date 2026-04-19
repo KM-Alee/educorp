@@ -84,11 +84,8 @@ run_migration() {
         "ls alembic/versions/*.py 2>/dev/null | wc -l" 2>/dev/null || echo "0")
     if [ "$count" -gt 0 ]; then
         info "  Migrating $svc ($count files)..."
-        if docker compose exec -T "$container" alembic upgrade head 2>&1 | tail -2; then
-            ok "  $svc migrations applied"
-        else
-            warn "  $svc migrations failed (tables may exist)"
-        fi
+        docker compose exec -T "$container" alembic upgrade head
+        ok "  $svc migrations applied"
     else
         info "  $svc: no migrations, skipping"
     fi
@@ -107,7 +104,10 @@ info "Phase 1/6: Core infrastructure..."
 docker compose up -d postgres mongodb redis qdrant minio traefik
 
 info "Waiting for core services (parallel)..."
-wait_parallel 60 postgres mongodb redis qdrant minio
+wait_parallel 60 postgres mongodb redis qdrant minio || {
+    fail "Core infrastructure did not become healthy"
+    exit 1
+}
 ok "Core infrastructure ready ($(elapsed $START_TIME))"
 
 # ── Phase 2: Messaging (parallel) ────────────────────────
@@ -115,7 +115,10 @@ info "Phase 2/6: Messaging services..."
 docker compose --profile messaging up -d
 
 info "Waiting for messaging (parallel)..."
-wait_parallel 90 kafka rabbitmq
+wait_parallel 90 kafka rabbitmq || {
+    fail "Messaging services did not become healthy"
+    exit 1
+}
 ok "Messaging ready ($(elapsed $START_TIME))"
 
 # ── Phase 3: Workflow engine ─────────────────────────────
@@ -126,7 +129,8 @@ info "Waiting for Temporal..."
 if wait_for_healthy temporal 90; then
     ok "Temporal ready ($(elapsed $START_TIME))"
 else
-    warn "Temporal may still be starting"
+    fail "Temporal did not become healthy"
+    exit 1
 fi
 
 # ── Phase 4: Application services (all at once) ─────────
@@ -144,11 +148,8 @@ done
 
 # ── Phase 6: Seed + health ──────────────────────────────
 info "Phase 6/6: Seeding data..."
-if docker compose exec -T auth-service python -m scripts.seed 2>&1 | tail -3; then
-    ok "Seed data loaded"
-else
-    warn "Seeding had issues (data may exist)"
-fi
+uv run python scripts/seed_data.py
+ok "Seed data loaded"
 
 echo ""
 info "Running health checks..."
@@ -178,8 +179,9 @@ echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━�
 if [ $healthy -eq $total ]; then
     echo -e "  ${GREEN}${BOLD}All $total services healthy${NC} (${TOTAL_TIME})"
 else
-    echo -e "  ${YELLOW}${BOLD}$healthy/$total services healthy${NC} (${TOTAL_TIME})"
-    echo -e "  Run: ${BOLD}make health${NC} to recheck"
+    echo -e "  ${RED}${BOLD}$healthy/$total services healthy${NC} (${TOTAL_TIME})"
+    echo -e "  Run: ${BOLD}make health${NC} to inspect failures"
+    exit 1
 fi
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""

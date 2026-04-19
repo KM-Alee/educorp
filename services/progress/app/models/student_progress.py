@@ -16,7 +16,7 @@ class StudentProgress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("enrollment_id", name="uq_student_progress_enrollment"),
         CheckConstraint(
-            "status IN ('NOT_STARTED', 'IN_PROGRESS', 'COMPLETED')",
+            "status IN ('NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED')",
             name="ck_student_progress_status",
         ),
         Index("idx_student_progress_student", "student_id"),
@@ -26,9 +26,11 @@ class StudentProgress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     enrollment_id: Mapped[UUID] = mapped_column()
     student_id: Mapped[UUID] = mapped_column()
+    student_name: Mapped[str] = mapped_column(String(200), default="")
     course_id: Mapped[UUID] = mapped_column()
+    course_title: Mapped[str] = mapped_column(String(300), default="")
     progress_percent: Mapped[float] = mapped_column(Numeric(5, 2), default=0.0)
-    status: Mapped[str] = mapped_column(String(20), default="IN_PROGRESS")
+    status: Mapped[str] = mapped_column(String(20), default="NOT_STARTED")
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)

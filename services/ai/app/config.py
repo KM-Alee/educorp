@@ -15,6 +15,7 @@ class Settings(BaseAppSettings):
     llm_model: str = "google/gemma-4-31b-it"
     llm_timeout_seconds: int = 30
     llm_max_retries: int = 2
+    ai_provider_mode: str = "external"
 
     embedding_base_url: str = "https://api.openai.com/v1"
     embedding_api_key: str = "change-me"
@@ -33,6 +34,7 @@ class Settings(BaseAppSettings):
 
     # Cache + rate limit
     ai_cache_ttl_seconds: int = 3600
+    clarify_context_ttl_seconds: int = 900
     enrollment_cache_ttl_seconds: int = 900
     rate_limit_window_seconds: int = 60
     rate_limit_student_per_window: int = 20

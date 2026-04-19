@@ -37,3 +37,19 @@ class AiJobsRepository:
             .limit(page_size)
         )
         return await cursor.to_list(length=page_size), total
+
+    async def mark_incomplete_jobs_failed(self) -> None:
+        await self._collection.update_many(
+            {"status": {"$in": ["QUEUED", "RUNNING"]}},
+            {
+                "$set": {
+                    "status": "FAILED",
+                    "completed_at": datetime.now(timezone.utc),
+                    "error": {
+                        "code": "PROCESS_RESTARTED",
+                        "message": "Job interrupted by service restart",
+                        "retryable": True,
+                    },
+                }
+            },
+        )

@@ -21,7 +21,12 @@ from app.dependencies import (
 )
 from app.repositories.ai_jobs_repository import AiJobsRepository
 from app.repositories.entitlement_repository import EntitlementRepository
-from app.schemas.instructor import EnhanceRequest, EnhanceResponse, JobListResponse, JobStatusResponse
+from app.schemas.instructor import (
+    EnhanceRequest,
+    EnhanceResponse,
+    JobListResponse,
+    JobStatusResponse,
+)
 from app.services.instructor_service import InstructorService
 from educorp_common.errors import EduCorpError, ForbiddenError, NotFoundError
 from educorp_common.middleware.correlation import get_correlation_id
@@ -29,7 +34,7 @@ from educorp_common.schemas.responses import ResponseMeta, SuccessResponse
 
 logger = structlog.get_logger()
 router = APIRouter(tags=["ai-instructor"])
-require_instructor = require_roles(["instructor", "admin"])
+require_instructor = require_roles("instructor", "admin")
 
 
 def _meta() -> ResponseMeta:
@@ -39,7 +44,9 @@ def _meta() -> ResponseMeta:
     )
 
 
-@router.post("/instructor/enhance", response_model=SuccessResponse[EnhanceResponse], status_code=202)
+@router.post(
+    "/instructor/enhance", response_model=SuccessResponse[EnhanceResponse], status_code=202
+)
 async def enhance(
     payload: EnhanceRequest,
     current_user: CurrentUser = Depends(get_current_user),
@@ -98,6 +105,12 @@ async def enhance_stream(
     mongo_db=Depends(get_mongo_db),
     kafka_producer=Depends(get_kafka_producer),
 ):
+    if scope == "module" and module_id is None:
+        raise EduCorpError(
+            code="MODULE_SCOPE_REQUIRES_MODULE_ID",
+            message="module_id is required when scope is module",
+            status_code=422,
+        )
     user_id = UUID(current_user["id"])
     service = InstructorService(
         session=session,
@@ -164,9 +177,12 @@ async def get_job(
         job_id=UUID(job["job_id"]),
         job_type=job["job_type"],
         status=job["status"],
+        input=job.get("input"),
         result=job.get("result"),
         created_at=job.get("created_at"),
+        started_at=job.get("started_at"),
         completed_at=job.get("completed_at"),
+        error=job.get("error"),
     )
     return SuccessResponse(data=response, meta=_meta())
 
@@ -231,6 +247,7 @@ async def list_jobs(
             "job_id": UUID(item["job_id"]),
             "job_type": item["job_type"],
             "status": item["status"],
+            "input": item.get("input"),
             "created_at": item.get("created_at"),
         }
         for item in items

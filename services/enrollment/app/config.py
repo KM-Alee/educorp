@@ -8,6 +8,7 @@ class Settings(BaseAppSettings):
 
     service_name: str = "enrollment-service"
     service_port: int = 8003
+    auth_service_url: str = "http://auth-service:8000/api/v1/auth"
     course_service_url: str = "http://course-service:8000/api/v1/courses"
     progress_service_url: str = "http://progress-service:8000/api/v1/progress"
     internal_service_token: str = "change-me"

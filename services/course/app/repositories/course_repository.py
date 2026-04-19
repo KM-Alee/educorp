@@ -32,8 +32,10 @@ class CourseRepository:
         return result.scalar_one_or_none()
 
     async def slug_exists(self, slug: str, *, exclude_id: UUID | None = None) -> bool:
-        query = select(func.count()).select_from(Course).where(
-            Course.slug == slug, Course.deleted_at.is_(None)
+        query = (
+            select(func.count())
+            .select_from(Course)
+            .where(Course.slug == slug, Course.deleted_at.is_(None))
         )
         if exclude_id is not None:
             query = query.where(Course.id != exclude_id)
@@ -90,13 +92,29 @@ class CourseRepository:
             query = query.where(Course.title.ilike(like) | Course.description.ilike(like))
 
         count_sub = query.subquery()
-        total_result = await self._session.execute(
-            select(func.count()).select_from(count_sub)
-        )
+        total_result = await self._session.execute(select(func.count()).select_from(count_sub))
         total = int(total_result.scalar_one())
 
-        query = query.order_by(Course.created_at.desc()).offset(
-            (page - 1) * page_size
-        ).limit(page_size)
+        query = (
+            query.order_by(Course.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+        )
         result = await self._session.execute(query)
         return list(result.scalars().all()), total
+
+    async def is_version_ready(self, version_id: UUID | None) -> bool:
+        if version_id is None:
+            return False
+        result = await self._session.execute(
+            text(
+                """
+                SELECT 1
+                  FROM publishing.course_versions
+                 WHERE id = :version_id
+                   AND status = 'READY'
+                   AND activated_at IS NOT NULL
+                 LIMIT 1
+                """
+            ),
+            {"version_id": str(version_id)},
+        )
+        return result.scalar_one_or_none() is not None

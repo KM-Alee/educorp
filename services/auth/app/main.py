@@ -50,6 +50,11 @@ def create_app() -> FastAPI:
         redoc_url="/api/v1/auth/redoc",
         openapi_url="/api/v1/auth/openapi.json",
     )
+
+    @app.get("/health/live")
+    async def root_health_live() -> dict[str, str]:
+        return {"status": "ok"}
+
     app.add_middleware(CorrelationIdMiddleware)
     app.include_router(v1_router, prefix="/api/v1/auth")
     register_exception_handlers(app)

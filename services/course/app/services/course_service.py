@@ -23,9 +23,7 @@ def _parse_duration(value: str | None) -> timedelta | None:
         return None
     import re
 
-    match = re.match(
-        r"^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$", value, re.IGNORECASE
-    )
+    match = re.match(r"^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$", value, re.IGNORECASE)
     if not match:
         return None
     days = int(match.group(1) or 0)
@@ -62,9 +60,7 @@ class CourseService:
         self._asset_repo = AssetRepository(session)
         self._slug = SlugService(self._repo)
 
-    async def create_course(
-        self, *, data: CourseCreate, instructor_id: UUID
-    ) -> CourseOut:
+    async def create_course(self, *, data: CourseCreate, instructor_id: UUID) -> CourseOut:
         slug = await self._slug.generate(data.title)
         course = Course(
             instructor_id=instructor_id,
@@ -245,9 +241,13 @@ class CourseService:
     async def get_enrollment_context(self, *, course_id: UUID) -> CourseEnrollmentContext:
         course = await self._get_or_404(course_id)
         modules = await self._module_repo.list_for_course(course_id)
+        is_ready = course.visibility == "PUBLISHED" and await self._repo.is_version_ready(
+            course.current_version_id
+        )
         return CourseEnrollmentContext(
             course_id=course.id,
             title=course.title,
+            is_ready=is_ready,
             visibility=course.visibility,
             current_version_id=course.current_version_id,
             max_capacity=course.max_capacity,
@@ -272,9 +272,7 @@ class CourseService:
         return course
 
     @staticmethod
-    def _enforce_owner_or_admin(
-        course: Course, caller_id: UUID, caller_roles: list[str]
-    ) -> None:
+    def _enforce_owner_or_admin(course: Course, caller_id: UUID, caller_roles: list[str]) -> None:
         if "admin" in caller_roles:
             return
         if course.instructor_id != caller_id:

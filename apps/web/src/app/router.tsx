@@ -11,6 +11,13 @@ import {
 import { CatalogPage, SearchPage } from '../features/catalog/CatalogPages'
 import { CourseEditorPage, CourseWorkspacePage } from '../features/courses/CoursePages'
 import { StudentCoursePage } from '../features/courses/StudentCoursePage'
+import {
+  CertificateDetailPage,
+  CertificatesPage,
+  DashboardPage,
+  LearningEnrollmentPage,
+  LearningPage,
+} from '../features/learning/LearningPages'
 import { ProfilePage } from '../features/profile/ProfilePage'
 import {
   clearSession,
@@ -60,6 +67,7 @@ function AppShellHeader({ session }: { session: SessionState }) {
   const isInstructorOrAdmin =
     session.user.roles.includes('instructor') || session.user.roles.includes('admin')
   const isAdmin = session.user.roles.includes('admin')
+  const isStudentOnly = session.user.roles.includes('student') && !isInstructorOrAdmin
 
   return (
     <header className="app-header">
@@ -68,6 +76,19 @@ function AppShellHeader({ session }: { session: SessionState }) {
       </div>
 
       <nav className="app-header__nav" aria-label="Primary navigation">
+        {isStudentOnly ? (
+          <>
+            <NavLink className="app-header__link" to="/app/dashboard">
+              Dashboard
+            </NavLink>
+            <NavLink className="app-header__link" to="/app/learning">
+              My Learning
+            </NavLink>
+            <NavLink className="app-header__link" to="/app/certificates">
+              Certificates
+            </NavLink>
+          </>
+        ) : null}
         {isInstructorOrAdmin ? (
           <NavLink className="app-header__link" to="/app/courses">
             Courses
@@ -154,13 +175,17 @@ export function AppRoutes() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
       </Route>
 
-      <Route element={<ProtectedRoute />}>
-        <Route path="/app" element={<AppShell />}>
-          <Route index element={<NotFoundRedirect />} />
-          <Route path="profile" element={<ProfilePage />} />
-          <Route path="catalog" element={<CatalogPage />} />
-          <Route path="catalog/:courseId" element={<StudentCoursePage />} />
-          <Route path="search" element={<SearchPage />} />
+        <Route element={<ProtectedRoute />}>
+          <Route path="/app" element={<AppShell />}>
+            <Route index element={<NotFoundRedirect />} />
+            <Route path="dashboard" element={<DashboardPage />} />
+            <Route path="learning" element={<LearningPage />} />
+            <Route path="learning/:enrollmentId" element={<LearningEnrollmentPage />} />
+            <Route path="certificates" element={<CertificatesPage />} />
+            <Route path="profile" element={<ProfilePage />} />
+            <Route path="catalog" element={<CatalogPage />} />
+            <Route path="catalog/:courseId" element={<StudentCoursePage />} />
+            <Route path="search" element={<SearchPage />} />
           <Route element={<RoleRoute roles={['instructor', 'admin']} />}>
             <Route path="courses" element={<CourseWorkspacePage />} />
             <Route path="courses/:courseId" element={<CourseEditorPage />} />
@@ -171,6 +196,8 @@ export function AppRoutes() {
           </Route>
         </Route>
       </Route>
+
+      <Route path="/certificates/:certificateId" element={<CertificateDetailPage />} />
 
       <Route path="*" element={<NotFoundRedirect />} />
     </Routes>

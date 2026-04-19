@@ -27,7 +27,9 @@ def upgrade() -> None:
             unique=True,
         ),
         sa.Column("student_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("student_name", sa.String(200), nullable=False, server_default=sa.text("''")),
         sa.Column("course_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("course_title", sa.String(300), nullable=False, server_default=sa.text("''")),
         sa.Column(
             "progress_percent",
             sa.Numeric(5, 2),
@@ -38,7 +40,7 @@ def upgrade() -> None:
             "status",
             sa.String(20),
             nullable=False,
-            server_default=sa.text("'IN_PROGRESS'"),
+            server_default=sa.text("'NOT_STARTED'"),
         ),
         sa.Column("started_at", sa.DateTime(timezone=True)),
         sa.Column("completed_at", sa.DateTime(timezone=True)),
@@ -56,11 +58,12 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.CheckConstraint(
-            "status IN ('NOT_STARTED', 'IN_PROGRESS', 'COMPLETED')",
+            "status IN ('NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED')",
             name="ck_student_progress_status",
         ),
         sa.ForeignKeyConstraint(
-            ["enrollment_id"], ["enrollment.enrollments.id"],
+            ["enrollment_id"],
+            ["enrollment.enrollments.id"],
         ),
         schema="progress",
     )
@@ -91,6 +94,9 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("module_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("module_title", sa.String(300), nullable=False, server_default=sa.text("''")),
+        sa.Column("sort_order", sa.Integer(), nullable=False, server_default=sa.text("0")),
+        sa.Column("is_required", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column(
             "is_completed",
             sa.Boolean(),
@@ -123,7 +129,8 @@ def upgrade() -> None:
             name="uq_module_progress_module",
         ),
         sa.ForeignKeyConstraint(
-            ["student_progress_id"], ["progress.student_progress.id"],
+            ["student_progress_id"],
+            ["progress.student_progress.id"],
             ondelete="CASCADE",
         ),
         schema="progress",
@@ -172,7 +179,8 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.ForeignKeyConstraint(
-            ["enrollment_id"], ["enrollment.enrollments.id"],
+            ["enrollment_id"],
+            ["enrollment.enrollments.id"],
         ),
         schema="progress",
     )
@@ -230,17 +238,11 @@ def downgrade() -> None:
     op.drop_index("idx_outbox_unpublished", table_name="outbox", schema="progress")
     op.drop_table("outbox", schema="progress")
 
-    op.drop_index(
-        "idx_certificates_number", table_name="certificates", schema="progress"
-    )
-    op.drop_index(
-        "idx_certificates_student", table_name="certificates", schema="progress"
-    )
+    op.drop_index("idx_certificates_number", table_name="certificates", schema="progress")
+    op.drop_index("idx_certificates_student", table_name="certificates", schema="progress")
     op.drop_table("certificates", schema="progress")
 
-    op.drop_index(
-        "idx_module_progress_parent", table_name="module_progress", schema="progress"
-    )
+    op.drop_index("idx_module_progress_parent", table_name="module_progress", schema="progress")
     op.drop_table("module_progress", schema="progress")
 
     op.drop_index(

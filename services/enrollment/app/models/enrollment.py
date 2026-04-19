@@ -24,6 +24,7 @@ class Enrollment(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Index("idx_enrollments_status", "status"),
         Index(
             "idx_enrollments_idempotency",
+            "student_id",
             "idempotency_key",
             unique=True,
             postgresql_where="idempotency_key IS NOT NULL",

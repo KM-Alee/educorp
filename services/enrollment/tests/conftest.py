@@ -7,6 +7,8 @@ from uuid import uuid4
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -15,6 +17,11 @@ from app.dependencies import get_current_user, get_redis, get_session
 from app.main import create_app
 from educorp_common.auth.dependencies import CurrentUser
 from educorp_common.database.base import Base
+
+
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_sqlite(_type, _compiler, **_kwargs) -> str:
+    return "JSON"
 
 
 class FakeRedis:
@@ -45,6 +52,13 @@ class FakeRedis:
             existed = key in self._store
             self._store.pop(key, None)
             return 1 if existed else 0
+
+    async def eval(self, _script: str, _numkeys: int, key: str, token: str) -> int:
+        async with self._lock:
+            if self._store.get(key) == token:
+                self._store.pop(key, None)
+                return 1
+            return 0
 
 
 @pytest.fixture

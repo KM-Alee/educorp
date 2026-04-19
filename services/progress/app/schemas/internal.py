@@ -16,6 +16,7 @@ class ProgressInitModule(BaseModel):
 class ProgressInitRequest(BaseModel):
     enrollment_id: UUID
     student_id: UUID
+    student_name: str
     course_id: UUID
     course_title: str
     modules: list[ProgressInitModule]

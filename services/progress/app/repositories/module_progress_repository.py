@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.module_progress import ModuleProgress
@@ -31,37 +31,39 @@ class ModuleProgressRepository:
         return progress
 
     async def list_with_titles(self, student_progress_id: UUID) -> list[dict]:
-        query = text(
-            """
-            SELECT mp.module_id,
-                   mp.is_completed,
-                   mp.progress_percent,
-                   mp.completed_at,
-                   m.title,
-                   m.sort_order
-              FROM progress.module_progress mp
-              JOIN course.modules m ON m.id = mp.module_id
-             WHERE mp.student_progress_id = :student_progress_id
-             ORDER BY m.sort_order
-            """
+        query = (
+            select(
+                ModuleProgress.module_id,
+                ModuleProgress.module_title,
+                ModuleProgress.sort_order,
+                ModuleProgress.is_completed,
+                ModuleProgress.progress_percent,
+                ModuleProgress.completed_at,
+            )
+            .where(ModuleProgress.student_progress_id == student_progress_id)
+            .order_by(ModuleProgress.sort_order)
         )
-        result = await self._session.execute(
-            query, {"student_progress_id": str(student_progress_id)}
-        )
+        result = await self._session.execute(query)
         return [dict(row) for row in result.mappings().all()]
 
     async def count_total(self, student_progress_id: UUID) -> int:
         result = await self._session.execute(
-            select(func.count()).select_from(ModuleProgress).where(
-                ModuleProgress.student_progress_id == student_progress_id
+            select(func.count())
+            .select_from(ModuleProgress)
+            .where(
+                ModuleProgress.student_progress_id == student_progress_id,
+                ModuleProgress.is_required.is_(True),
             )
         )
         return int(result.scalar_one())
 
     async def count_completed(self, student_progress_id: UUID) -> int:
         result = await self._session.execute(
-            select(func.count()).select_from(ModuleProgress).where(
+            select(func.count())
+            .select_from(ModuleProgress)
+            .where(
                 ModuleProgress.student_progress_id == student_progress_id,
+                ModuleProgress.is_required.is_(True),
                 ModuleProgress.is_completed.is_(True),
             )
         )

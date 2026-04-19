@@ -1,5 +1,4 @@
 # EduCorp — Project Guidelines
-DO NOT EVER USE THE PATCH TOOL. create and edit like a normal ai.
 ## Overview
 
 EduCorp is an intelligent course delivery platform: a first-party React web app plus 9 FastAPI microservices communicating via REST, Kafka events, and Temporal workflows.

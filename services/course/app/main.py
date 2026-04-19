@@ -62,6 +62,11 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+
+    @app.get("/health/live")
+    async def root_health_live() -> dict[str, str]:
+        return {"status": "ok"}
+
     app.add_middleware(CorrelationIdMiddleware)
     app.include_router(v1_router, prefix="/api/v1/courses")
     register_exception_handlers(app)

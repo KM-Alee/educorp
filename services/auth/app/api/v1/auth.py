@@ -12,12 +12,14 @@ from app.dependencies import (
     get_current_user,
     get_redis,
     get_session,
+    require_internal_service,
     require_roles,
 )
 from app.schemas.auth import (
     ForgotPasswordRequest,
     InstructorApplicationOut,
     InstructorApplicationRequest,
+    InternalUserSummaryOut,
     LoginRequest,
     MessageOut,
     RefreshRequest,
@@ -179,9 +181,7 @@ async def forgot_password(
     )
     await session.commit()
     return SuccessResponse(
-        data=MessageOut(
-            message="If the email exists, a password reset link has been sent"
-        ),
+        data=MessageOut(message="If the email exists, a password reset link has been sent"),
         meta=build_meta(),
     )
 
@@ -227,6 +227,27 @@ async def get_me(
         avatar_url=user.avatar_url,
         created_at=user.created_at,
         updated_at=user.updated_at,
+    )
+    return SuccessResponse(data=data, meta=build_meta())
+
+
+@router.get(
+    "/internal/users/{user_id}/summary", response_model=SuccessResponse[InternalUserSummaryOut]
+)
+async def get_internal_user_summary(
+    user_id: UUID,
+    _: None = Depends(require_internal_service),
+    session: AsyncSession = Depends(get_session),
+    redis=Depends(get_redis),
+) -> SuccessResponse[InternalUserSummaryOut]:
+    service = AuthService(session, redis)
+    user = await service.get_profile(user_id)
+    data = InternalUserSummaryOut(
+        id=user.id,
+        email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        full_name=f"{user.first_name} {user.last_name}".strip(),
     )
     return SuccessResponse(data=data, meta=build_meta())
 

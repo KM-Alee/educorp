@@ -101,6 +101,12 @@ class InstructorService:
         requested_by: UUID,
         roles: list[str] | None = None,
     ) -> None:
+        if scope == "module" and module_id is None:
+            raise EduCorpError(
+                code="MODULE_SCOPE_REQUIRES_MODULE_ID",
+                message="module_id is required when scope is module",
+                status_code=422,
+            )
         version_id, _ = await self._repo.get_ready_course_version(course_id)
         if version_id is None:
             raise EduCorpError(
@@ -152,6 +158,12 @@ class InstructorService:
         requested_by: UUID,
         roles: list[str] | None = None,
     ):
+        if scope == "module" and module_id is None:
+            raise EduCorpError(
+                code="MODULE_SCOPE_REQUIRES_MODULE_ID",
+                message="module_id is required when scope is module",
+                status_code=422,
+            )
         version_id, _ = await self._repo.get_ready_course_version(course_id)
         if version_id is None:
             raise EduCorpError(
@@ -185,73 +197,78 @@ class InstructorService:
             }
         )
 
-        chunks, _ = await self._retriever.retrieve(
-            course_id=course_id,
-            version_id=version_id,
-            question=_stream_query_hint(job_type, parameters),
-            module_id=module_id if scope == "module" else None,
-        )
-        context = _build_context(chunks)
-        if estimate_tokens(context) > settings.max_input_tokens:
-            context = truncate_to_token_limit(context, settings.max_input_tokens)
+        try:
+            chunks, _ = await self._retriever.retrieve(
+                course_id=course_id,
+                version_id=version_id,
+                question=_stream_query_hint(job_type, parameters, module_id),
+                module_id=module_id if scope == "module" else None,
+            )
+            await self._ensure_not_cancelled(job_id)
+            context = _build_context(chunks)
+            if estimate_tokens(context) > settings.max_input_tokens:
+                context = truncate_to_token_limit(context, settings.max_input_tokens)
 
-        prompt = INSTRUCTOR_PROMPTS[job_type]
-        messages = [
-            {
-                "role": "system",
-                "content": prompt["system"].format(
-                    difficulty=parameters.get("difficulty", "intermediate"),
-                    max_length=parameters.get("max_length", 500),
-                    question_count=parameters.get("question_count", 10),
-                ),
-            },
-            {"role": "user", "content": prompt["user"].format(context=context)},
-        ]
+            prompt = INSTRUCTOR_PROMPTS[job_type]
+            messages = [
+                {
+                    "role": "system",
+                    "content": prompt["system"].format(
+                        difficulty=parameters.get("difficulty", "intermediate"),
+                        max_length=parameters.get("max_length", 500),
+                        question_count=parameters.get("question_count", 10),
+                    ),
+                },
+                {"role": "user", "content": prompt["user"].format(context=context)},
+            ]
 
-        answer = ""
-        async for token in self._llm.chat_completion_stream(
-            messages=messages,
-            temperature=0.7,
-            max_tokens=settings.max_output_tokens,
-        ):
-            answer += token
-            yield {"event": "token", "data": _json({"text": token})}
+            answer = ""
+            async for token in self._llm.chat_completion_stream(
+                messages=messages,
+                temperature=0.7,
+                max_tokens=settings.max_output_tokens,
+            ):
+                answer += token
+                yield {"event": "token", "data": _json({"text": token})}
 
-        citations = build_citations(answer, chunks)
-        for citation in citations:
-            yield {"event": "citation", "data": _json(citation)}
+            citations = build_citations(answer, chunks)
+            for citation in citations:
+                yield {"event": "citation", "data": _json(citation)}
 
-        current = await self._jobs.get_job(str(job_id))
-        if current and current.get("status") == "CANCELLED":
-            return
+            await self._ensure_not_cancelled(job_id)
+            await self._jobs.update_job(
+                str(job_id),
+                {
+                    "status": "COMPLETED",
+                    "completed_at": datetime.now(timezone.utc),
+                    "result": _result_payload(
+                        job_type, answer, citations, {"input": 0, "output": 0}
+                    ),
+                },
+            )
 
-        await self._jobs.update_job(
-            str(job_id),
-            {
-                "status": "COMPLETED",
-                "completed_at": datetime.now(timezone.utc),
-                "result": {"content": answer, "citations": citations},
-            },
-        )
+            await self._emit_usage(
+                query_id=job_id,
+                user_id=requested_by,
+                course_id=course_id,
+                version_id=version_id,
+                question_text=f"instructor:{job_type}",
+                chunks=len(chunks),
+                response_status="answered",
+                citations=len(citations),
+                latency_ms=0,
+                tokens_used={"input": 0, "output": 0},
+                cached=False,
+            )
 
-        await self._emit_usage(
-            query_id=job_id,
-            user_id=requested_by,
-            course_id=course_id,
-            version_id=version_id,
-            question_text=f"instructor:{job_type}",
-            chunks=len(chunks),
-            response_status="answered",
-            citations=len(citations),
-            latency_ms=0,
-            tokens_used={"input": 0, "output": 0},
-            cached=False,
-        )
-
-        yield {
-            "event": "done",
-            "data": _json({"job_id": str(job_id), "total_citations": len(citations)}),
-        }
+            yield {
+                "event": "done",
+                "data": _json({"job_id": str(job_id), "total_citations": len(citations)}),
+            }
+        except Exception as exc:
+            logger.warning("Instructor streaming failed", exc_info=exc)
+            await self._mark_failed(job_id, exc)
+            raise
 
     async def cancel_job(self, job_id: UUID) -> None:
         await self._jobs.update_job(
@@ -286,9 +303,10 @@ class InstructorService:
             chunks, _ = await self._retriever.retrieve(
                 course_id=course_id,
                 version_id=version_id,
-                question=_stream_query_hint(job_type, parameters),
+                question=_stream_query_hint(job_type, parameters, module_id),
                 module_id=module_id if scope == "module" else None,
             )
+            await self._ensure_not_cancelled(job_id)
             context = _build_context(chunks)
             if estimate_tokens(context) > settings.max_input_tokens:
                 context = truncate_to_token_limit(context, settings.max_input_tokens)
@@ -312,19 +330,13 @@ class InstructorService:
                 max_tokens=settings.max_output_tokens,
             )
             citations = build_citations(result.content, chunks)
-            current = await self._jobs.get_job(str(job_id))
-            if current and current.get("status") == "CANCELLED":
-                return
+            await self._ensure_not_cancelled(job_id)
             await self._jobs.update_job(
                 str(job_id),
                 {
                     "status": "COMPLETED",
                     "completed_at": datetime.now(timezone.utc),
-                    "result": {
-                        "content": result.content,
-                        "citations": citations,
-                        "tokens_used": result.usage,
-                    },
+                    "result": _result_payload(job_type, result.content, citations, result.usage),
                 },
             )
 
@@ -343,21 +355,7 @@ class InstructorService:
             )
         except Exception as exc:
             logger.warning("Instructor job failed", exc_info=exc)
-            current = await self._jobs.get_job(str(job_id))
-            if current and current.get("status") == "CANCELLED":
-                return
-            await self._jobs.update_job(
-                str(job_id),
-                {
-                    "status": "FAILED",
-                    "completed_at": datetime.now(timezone.utc),
-                    "error": {
-                        "code": "AI_PROVIDER_ERROR",
-                        "message": str(exc),
-                        "retryable": False,
-                    },
-                },
-            )
+            await self._mark_failed(job_id, exc)
 
     async def _require_owner(
         self,
@@ -408,6 +406,35 @@ class InstructorService:
         )
         await emit_event(self._kafka_producer, event)
 
+    async def reconcile_orphaned_jobs(self) -> None:
+        await self._jobs.mark_incomplete_jobs_failed()
+
+    async def _ensure_not_cancelled(self, job_id: UUID) -> None:
+        current = await self._jobs.get_job(str(job_id))
+        if current and current.get("status") == "CANCELLED":
+            raise EduCorpError(
+                code="JOB_CANCELLED",
+                message="Job was cancelled",
+                status_code=409,
+            )
+
+    async def _mark_failed(self, job_id: UUID, exc: Exception) -> None:
+        current = await self._jobs.get_job(str(job_id))
+        if current and current.get("status") == "CANCELLED":
+            return
+        await self._jobs.update_job(
+            str(job_id),
+            {
+                "status": "FAILED",
+                "completed_at": datetime.now(timezone.utc),
+                "error": {
+                    "code": getattr(exc, "code", "AI_PROVIDER_ERROR"),
+                    "message": str(exc),
+                    "retryable": False,
+                },
+            },
+        )
+
 
 def _build_context(chunks: list[dict]) -> str:
     lines = []
@@ -419,11 +446,27 @@ def _build_context(chunks: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
-def _stream_query_hint(job_type: str, parameters: dict[str, Any]) -> str:
+def _stream_query_hint(job_type: str, parameters: dict[str, Any], module_id: UUID | None) -> str:
+    if module_id is not None:
+        return f"module {module_id}"
     hint = job_type
     if job_type == "quiz":
         hint = f"quiz {parameters.get('question_count', 10)} questions"
     return hint
+
+
+def _result_payload(
+    job_type: str,
+    content: str,
+    citations: list[dict[str, Any]],
+    tokens_used: dict[str, int],
+) -> dict[str, Any]:
+    return {
+        "type": job_type,
+        "content": content,
+        "citations": citations,
+        "tokens_used": tokens_used,
+    }
 
 
 def _json(payload: dict[str, Any]) -> str:

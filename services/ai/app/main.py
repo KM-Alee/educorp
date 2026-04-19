@@ -12,7 +12,7 @@ from aiokafka import AIOKafkaProducer
 
 from app.api.v1 import router as v1_router
 from app.config import settings
-from educorp_common.database.session import create_async_engine
+from educorp_common.database.session import create_async_engine, create_session_factory
 from educorp_common.errors import register_exception_handlers
 from educorp_common.middleware.correlation import CorrelationIdMiddleware
 from educorp_common.middleware.logging import setup_logging
@@ -56,6 +56,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.warning("Kafka producer unavailable", exc_info=exc)
         kafka_producer = None
 
+    try:
+        from app.services.instructor_service import InstructorService
+
+        session_factory = create_session_factory(engine)
+        async with session_factory() as session:
+            service = InstructorService(
+                session=session,
+                redis=redis,
+                qdrant=qdrant,
+                mongo_db=mongo_db,
+                kafka_producer=kafka_producer,
+            )
+            await service.reconcile_orphaned_jobs()
+    except Exception as exc:
+        logger.warning("Instructor job reconciliation failed", exc_info=exc)
+
     yield
 
     if kafka_producer is not None:
@@ -76,6 +92,11 @@ def create_app() -> FastAPI:
         redoc_url="/api/v1/ai/redoc",
         lifespan=lifespan,
     )
+
+    @app.get("/health/live")
+    async def root_health_live() -> dict[str, str]:
+        return {"status": "ok"}
+
     app.add_middleware(CorrelationIdMiddleware)
     app.include_router(v1_router, prefix="/api/v1/ai")
     register_exception_handlers(app)

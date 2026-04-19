@@ -23,6 +23,7 @@ class CourseEnrollmentContext(BaseModel):
 
     course_id: UUID
     title: str
+    is_ready: bool
     visibility: str
     current_version_id: UUID | None
     max_capacity: int | None

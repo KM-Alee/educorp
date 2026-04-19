@@ -184,20 +184,20 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
-      KAFKA_HEAP_OPTS: "-Xmx128m"
+      KAFKA_HEAP_OPTS: "-Xmx256m"
     deploy:
       resources:
         limits:
-          memory: 256M
-          cpus: "0.25"
+          memory: 512M
+          cpus: "0.50"
     volumes:
       - zookeeper_data:/var/lib/zookeeper/data
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "2181"]
-      interval: 5s
-      timeout: 3s
-      start_period: 10s
-      retries: 5
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 10
 
   kafka:
     image: confluentinc/cp-kafka:7.6.0
@@ -232,8 +232,8 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list"]
       interval: 15s
-      timeout: 10s
-      start_period: 30s
+      timeout: 30s
+      start_period: 60s
       retries: 10
 
   kafka-init:
@@ -244,22 +244,9 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-    entrypoint: ["/bin/bash", "-c"]
-    command:
-      - |
-        echo "Creating Kafka topics..."
-        for topic in \
-          auth.lifecycle course.lifecycle enrollment.lifecycle \
-          progress.lifecycle publishing.lifecycle notification.lifecycle \
-          analytics.lifecycle auth.lifecycle.dlq course.lifecycle.dlq \
-          enrollment.lifecycle.dlq progress.lifecycle.dlq \
-          publishing.lifecycle.dlq notification.lifecycle.dlq \
-          analytics.lifecycle.dlq; do
-          kafka-topics --bootstrap-server kafka:29092 \
-            --create --if-not-exists \
-            --topic "$$topic" --partitions 3 --replication-factor 1 2>/dev/null
-        done
-        echo "All Kafka topics ready."
+    volumes:
+      - ./infra/kafka/topics.sh:/opt/kafka-topics.sh:ro
+    entrypoint: ["/bin/bash", "/opt/kafka-topics.sh"]
     restart: "no"
 
   schema-registry:
@@ -307,9 +294,9 @@ services:
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
-      timeout: 5s
-      start_period: 15s
-      retries: 5
+      timeout: 15s
+      start_period: 30s
+      retries: 10
 
   # ─── Workflow Engine ───────────────────────────────────
   temporal:
@@ -602,6 +589,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      mongodb:
         condition: service_healthy
       qdrant:
         condition: service_healthy

@@ -1,12 +1,12 @@
 # Makefile — EduCorp Developer Shortcuts
 # Run `make help` to see all available targets
-.PHONY: help up up-full up-messaging up-workflow up-observability up-app \
+.PHONY: help up up-full up-messaging up-workflow up-observability up-app start \
         down restart logs build ps health \
         migrate migrate-service migrate-create \
         kafka-topics kafka-list \
         test test-service test-coverage lint fmt \
         seed shell exec \
-        clean reset debug-service
+        clean reset debug-service smoke-phase4 smoke-phase5
 
 COMPOSE = docker compose
 SERVICE ?=
@@ -15,6 +15,7 @@ MSG ?=
 # ─── Service lists ───────────────────────────────
 SERVICES = auth course enrollment progress publishing ai search notification analytics
 MIGRATE_SERVICES = auth course enrollment progress publishing notification analytics
+TEST_SERVICES = enrollment progress ai
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -96,8 +97,7 @@ migrate: ## Run all migrations
 			"ls alembic/versions/*.py 2>/dev/null | wc -l" 2>/dev/null || echo 0); \
 		if [ "$$count" -gt 0 ]; then \
 			echo "=== Migrating $$svc ($$count files) ==="; \
-			$(COMPOSE) exec -T $$svc-service alembic upgrade head || \
-				echo "  ⚠ $$svc migration failed"; \
+			$(COMPOSE) exec -T $$svc-service alembic upgrade head || exit $$?; \
 		else \
 			echo "=== $$svc: no migrations, skipping ==="; \
 		fi; \
@@ -117,17 +117,17 @@ kafka-list: ## List Kafka topics
 	$(COMPOSE) exec kafka kafka-topics --bootstrap-server localhost:29092 --list
 
 # ─── Testing ─────────────────────────────────────
-test: ## Run all tests
-	@for svc in $(SERVICES); do \
+test: ## Run supported local service test suites with uv
+	@for svc in $(TEST_SERVICES); do \
 		echo "=== Testing $$svc ==="; \
-		$(COMPOSE) exec -T $$svc-service pytest tests/ -v --tb=short || true; \
+		uv run --project services/$$svc pytest services/$$svc/tests -v --tb=short || exit $$?; \
 	done
 
 test-service: ## Run tests for SERVICE=<name>
-	$(COMPOSE) exec $(SERVICE)-service pytest tests/ -v
+	uv run --project services/$(SERVICE) pytest services/$(SERVICE)/tests -v --tb=short
 
 test-coverage: ## Run tests with coverage for SERVICE=<name>
-	$(COMPOSE) exec $(SERVICE)-service pytest tests/ -v --cov=app --cov-report=term-missing
+	uv run --project services/$(SERVICE) pytest services/$(SERVICE)/tests -v --tb=short
 
 lint: ## Run linting (ruff + mypy)
 	uv run ruff check .
@@ -139,7 +139,13 @@ fmt: ## Format code
 
 # ─── Seeding ─────────────────────────────────────
 seed: ## Seed development data
-	$(COMPOSE) exec auth-service python -m scripts.seed
+	uv run python scripts/seed_data.py
+
+smoke-phase4: ## Run Phase 4 enroll-progress-certificate smoke
+	uv run python scripts/phase4_smoke.py
+
+smoke-phase5: ## Run Phase 5 AI smoke
+	uv run python scripts/phase5_smoke.py
 
 # ─── Developer Utilities ─────────────────────────
 shell: ## Open shell in SERVICE=<name> container

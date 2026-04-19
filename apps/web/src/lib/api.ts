@@ -10,6 +10,8 @@ import {
 
 const AUTH_BASE = '/api/v1/auth'
 const COURSE_BASE = '/api/v1/courses'
+const ENROLLMENT_BASE = '/api/v1/enrollments'
+const PROGRESS_BASE = '/api/v1/progress'
 const PUBLISHING_BASE = '/api/v1/publishing'
 const SEARCH_BASE = '/api/v1/search'
 const AI_BASE = '/api/v1/ai'
@@ -273,6 +275,89 @@ export interface CourseSearchItem {
   matched_in: string[]
 }
 
+export interface EnrollmentRecord {
+  id: string
+  student_id: string
+  course_id: string
+  status: string
+  enrolled_at: string
+}
+
+export interface EnrollmentStatus {
+  is_enrolled: boolean
+  enrollment_id?: string | null
+  status?: string | null
+  progress_percent?: number | null
+}
+
+export interface LearningModuleProgress {
+  module_id: string
+  module_title: string
+  is_completed: boolean
+  progress_percent: number
+  completed_at?: string | null
+}
+
+export interface EnrollmentProgress {
+  enrollment_id: string
+  course_id: string
+  progress_percent: number
+  status: string
+  started_at?: string | null
+  last_activity_at?: string | null
+  modules: LearningModuleProgress[]
+}
+
+export interface CourseCompletionCertificate {
+  id: string
+  certificate_number: string
+  issued_at: string
+}
+
+export interface ModuleCompletionResult {
+  module_id: string
+  is_completed: boolean
+  completed_at?: string | null
+  overall_progress_percent: number
+  course_completed: boolean
+  certificate?: CourseCompletionCertificate | null
+}
+
+export interface DashboardCourse {
+  course_id: string
+  course_title: string
+  progress_percent: number
+  status: string
+  last_activity_at?: string | null
+}
+
+export interface ProgressDashboard {
+  active_courses: number
+  completed_courses: number
+  total_certificates: number
+  courses: DashboardCourse[]
+}
+
+export interface CertificateSummary {
+  id: string
+  course_id: string
+  course_title: string
+  certificate_number: string
+  issued_at: string
+}
+
+export interface CertificateDetail {
+  id: string
+  enrollment_id: string
+  student_id: string
+  course_id: string
+  course_title: string
+  student_name: string
+  certificate_number: string
+  issued_at: string
+  metadata: Record<string, unknown>
+}
+
 export interface AICitation {
   chunk_id: string
   module_title?: string | null
@@ -295,9 +380,20 @@ export interface AIEnhancementJob {
   job_id: string
   job_type: string
   status: string
+  input?: {
+    scope?: string
+    module_id?: string | null
+    parameters?: Record<string, unknown>
+  } | null
   result?: Record<string, unknown> | null
   created_at?: string | null
+  started_at?: string | null
   completed_at?: string | null
+  error?: {
+    code?: string
+    message?: string
+    retryable?: boolean
+  } | null
 }
 
 export interface AIEnhanceResponse {
@@ -309,6 +405,11 @@ export interface AIEnhanceResponse {
 export interface AIJobList {
   items: AIEnhancementJob[]
   total: number
+}
+
+export interface EventStreamMessage {
+  event: string
+  data: string | null
 }
 
 async function parsePayload<T>(response: Response): Promise<T | null> {
@@ -451,6 +552,106 @@ async function requestPaginated<T>(
   }
 
   return payload
+}
+
+async function requestEventStream(
+  path: string,
+  options: {
+    auth?: boolean
+    retry?: boolean
+    init?: RequestInit
+    onEvent: (event: EventStreamMessage) => void
+  },
+): Promise<void> {
+  const session = getSession()
+  const headers = new Headers(options.init?.headers)
+  headers.set('Accept', 'text/event-stream')
+
+  if (options.auth && session?.accessToken) {
+    headers.set('Authorization', `Bearer ${session.accessToken}`)
+  }
+
+  const response = await fetch(path, { ...options.init, headers })
+
+  if (response.status === 401 && options.auth && options.retry !== false) {
+    const refreshed = await refreshSession()
+    if (refreshed) {
+      return requestEventStream(path, { ...options, retry: false })
+    }
+  }
+
+  if (!response.ok) {
+    throw await toApiError(response)
+  }
+
+  if (!response.body) {
+    throw createError(500, {
+      code: 'STREAM_UNAVAILABLE',
+      message: 'Streaming is unavailable right now. Please try again.',
+    })
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) {
+      break
+    }
+
+    buffer += decoder.decode(value, { stream: true })
+    let separatorIndex = buffer.indexOf('\n\n')
+
+    while (separatorIndex >= 0) {
+      const rawEvent = buffer.slice(0, separatorIndex).trim()
+      buffer = buffer.slice(separatorIndex + 2)
+
+      if (rawEvent) {
+        options.onEvent(parseEventStreamMessage(rawEvent))
+      }
+
+      separatorIndex = buffer.indexOf('\n\n')
+    }
+  }
+
+  const trailingEvent = buffer.trim()
+  if (trailingEvent) {
+    options.onEvent(parseEventStreamMessage(trailingEvent))
+  }
+}
+
+async function toApiError(response: Response): Promise<ApiError> {
+  try {
+    const payload = await parsePayload<ApiErrorResponse>(response)
+    if (payload && 'error' in payload) {
+      return createError(response.status, payload.error)
+    }
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return error
+    }
+  }
+
+  return createError(response.status, undefined)
+}
+
+function parseEventStreamMessage(rawEvent: string): EventStreamMessage {
+  const lines = rawEvent.split('\n')
+  let event = 'message'
+  let data = ''
+
+  for (const line of lines) {
+    if (line.startsWith('event:')) {
+      event = line.replace('event:', '').trim()
+    }
+    if (line.startsWith('data:')) {
+      data += line.replace('data:', '').trim()
+    }
+  }
+
+  return { event, data: data || null }
 }
 
 export async function registerUser(input: RegisterInput): Promise<UserCreated> {
@@ -909,6 +1110,116 @@ export async function searchCourses(filters: {
   return requestPaginated<CourseSearchItem>(`${SEARCH_BASE}/courses?${params.toString()}`)
 }
 
+export async function enrollInCourse(input: {
+  course_id: string
+  idempotency_key?: string | null
+}): Promise<EnrollmentRecord> {
+  const response = await requestEnvelope<EnrollmentRecord>(
+    `${ENROLLMENT_BASE}/`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+    { auth: true },
+  )
+
+  return response.data
+}
+
+export async function listEnrollments(filters: {
+  page?: number
+  page_size?: number
+  status?: string
+}): Promise<PaginatedResponse<EnrollmentRecord>> {
+  const params = new URLSearchParams()
+  params.set('page', String(filters.page ?? 1))
+  params.set('page_size', String(filters.page_size ?? 20))
+  if (filters.status) {
+    params.set('status', filters.status)
+  }
+
+  return requestPaginated<EnrollmentRecord>(`${ENROLLMENT_BASE}/?${params.toString()}`)
+}
+
+export async function getEnrollment(enrollmentId: string): Promise<EnrollmentRecord> {
+  const response = await requestEnvelope<EnrollmentRecord>(
+    `${ENROLLMENT_BASE}/${enrollmentId}`,
+    {},
+    { auth: true },
+  )
+
+  return response.data
+}
+
+export async function cancelEnrollment(enrollmentId: string): Promise<EnrollmentRecord> {
+  const response = await requestEnvelope<EnrollmentRecord>(
+    `${ENROLLMENT_BASE}/${enrollmentId}/cancel`,
+    { method: 'POST' },
+    { auth: true },
+  )
+
+  return response.data
+}
+
+export async function getEnrollmentStatus(courseId: string): Promise<EnrollmentStatus> {
+  const response = await requestEnvelope<EnrollmentStatus>(
+    `${ENROLLMENT_BASE}/courses/${courseId}/enrollment-status`,
+    {},
+    { auth: true },
+  )
+
+  return response.data
+}
+
+export async function getEnrollmentProgress(enrollmentId: string): Promise<EnrollmentProgress> {
+  const response = await requestEnvelope<EnrollmentProgress>(
+    `${PROGRESS_BASE}/enrollments/${enrollmentId}`,
+    {},
+    { auth: true },
+  )
+
+  return response.data
+}
+
+export async function completeModule(input: {
+  enrollment_id: string
+  module_id: string
+}): Promise<ModuleCompletionResult> {
+  const response = await requestEnvelope<ModuleCompletionResult>(
+    `${PROGRESS_BASE}/enrollments/${input.enrollment_id}/modules/${input.module_id}/complete`,
+    { method: 'POST' },
+    { auth: true },
+  )
+
+  return response.data
+}
+
+export async function getProgressDashboard(): Promise<ProgressDashboard> {
+  const response = await requestEnvelope<ProgressDashboard>(`${PROGRESS_BASE}/dashboard`, {}, {
+    auth: true,
+  })
+
+  return response.data
+}
+
+export async function listCertificates(): Promise<CertificateSummary[]> {
+  const response = await requestEnvelope<CertificateSummary[]>(
+    `${PROGRESS_BASE}/certificates`,
+    {},
+    { auth: true },
+  )
+
+  return response.data
+}
+
+export async function getCertificate(certificateId: string): Promise<CertificateDetail> {
+  const response = await requestEnvelope<CertificateDetail>(
+    `${PROGRESS_BASE}/certificates/${certificateId}`,
+  )
+
+  return response.data
+}
+
 export async function listInstructorApplications(
   status = 'PENDING',
 ): Promise<PaginatedResponse<InstructorApplication>> {
@@ -955,6 +1266,45 @@ export async function askAI(input: {
   return response.data
 }
 
+export async function askAIClarify(input: {
+  course_id: string
+  original_query_id: string
+  clarification: string
+}): Promise<AIAnswer> {
+  const response = await requestEnvelope<AIAnswer>(
+    `${AI_BASE}/ask/clarify`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+    { auth: true },
+  )
+
+  return response.data
+}
+
+export async function streamAIAssistant(input: {
+  course_id: string
+  question: string
+  module_id?: string | null
+  signal: AbortSignal
+  onEvent: (event: EventStreamMessage) => void
+}): Promise<void> {
+  const params = new URLSearchParams({
+    course_id: input.course_id,
+    question: input.question,
+  })
+  if (input.module_id) {
+    params.set('module_id', input.module_id)
+  }
+
+  return requestEventStream(`${AI_BASE}/ask/stream?${params.toString()}`, {
+    auth: true,
+    init: { signal: input.signal },
+    onEvent: input.onEvent,
+  })
+}
+
 export async function createAIEnhancementJob(input: {
   course_id: string
   job_type: string
@@ -988,6 +1338,52 @@ export async function getAIJob(jobId: string): Promise<AIEnhancementJob> {
   )
 
   return response.data
+}
+
+export async function cancelAIJob(jobId: string): Promise<{ job_id: string; status: string }> {
+  const response = await requestEnvelope<{ job_id: string; status: string }>(
+    `${AI_BASE}/instructor/jobs/${jobId}/cancel`,
+    { method: 'POST' },
+    { auth: true },
+  )
+
+  return response.data
+}
+
+export async function streamAIEnhancement(input: {
+  course_id: string
+  job_type: string
+  scope: string
+  module_id?: string | null
+  max_length?: number
+  question_count?: number
+  difficulty?: string
+  signal: AbortSignal
+  onEvent: (event: EventStreamMessage) => void
+}): Promise<void> {
+  const params = new URLSearchParams({
+    course_id: input.course_id,
+    job_type: input.job_type,
+    scope: input.scope,
+  })
+  if (input.module_id) {
+    params.set('module_id', input.module_id)
+  }
+  if (typeof input.max_length === 'number') {
+    params.set('max_length', String(input.max_length))
+  }
+  if (typeof input.question_count === 'number') {
+    params.set('question_count', String(input.question_count))
+  }
+  if (input.difficulty) {
+    params.set('difficulty', input.difficulty)
+  }
+
+  return requestEventStream(`${AI_BASE}/instructor/enhance/stream?${params.toString()}`, {
+    auth: true,
+    init: { signal: input.signal },
+    onEvent: input.onEvent,
+  })
 }
 
 export async function listAIJobs(filters: {

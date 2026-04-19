@@ -33,6 +33,11 @@ class LLMClient:
         temperature: float,
         max_tokens: int,
     ) -> LLMResult:
+        if settings.ai_provider_mode == "fake":
+            prompt = messages[-1]["content"] if messages else ""
+            return LLMResult(
+                content=f"Fake answer [1]\n\n{prompt[:120]}", usage={"input": 0, "output": 0}
+            )
         try:
             response = await self._client.chat.completions.create(
                 model=settings.llm_model,
@@ -76,6 +81,10 @@ class LLMClient:
         temperature: float,
         max_tokens: int,
     ) -> AsyncIterator[str]:
+        if settings.ai_provider_mode == "fake":
+            for token in ["Fake ", "stream ", "answer [1]"]:
+                yield token
+            return
         try:
             stream = await self._client.chat.completions.create(
                 model=settings.llm_model,

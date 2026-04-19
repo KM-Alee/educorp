@@ -35,6 +35,14 @@ def _meta() -> ResponseMeta:
     )
 
 
+def _role_scope(roles: list[str]) -> str:
+    if "admin" in roles:
+        return "admin"
+    if "instructor" in roles:
+        return "instructor"
+    return "student"
+
+
 @router.post("/ask", response_model=SuccessResponse[AskResponse])
 async def ask(
     payload: AskRequest,
@@ -56,7 +64,7 @@ async def ask(
         question=payload.question,
         module_id=payload.module_id,
         user_id=user_id,
-        role_scope="student",
+        role_scope=_role_scope(current_user.get("roles", [])),
     )
 
     response = AskResponse(
@@ -97,7 +105,7 @@ async def ask_stream(
                 question=question,
                 module_id=module_id,
                 user_id=user_id,
-                role_scope="student",
+                role_scope=_role_scope(current_user.get("roles", [])),
             ):
                 yield event
         except EduCorpError as exc:
@@ -131,12 +139,12 @@ async def ask_clarify(
         qdrant=qdrant,
         kafka_producer=kafka_producer,
     )
-    state = await service.ask(
+    state = await service.continue_clarification(
         course_id=payload.course_id,
-        question=payload.clarification,
-        module_id=None,
+        original_query_id=payload.original_query_id,
+        clarification=payload.clarification,
         user_id=user_id,
-        role_scope="student",
+        role_scope=_role_scope(current_user.get("roles", [])),
     )
 
     response = ClarifyResponse(

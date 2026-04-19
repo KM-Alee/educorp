@@ -3,10 +3,13 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import text
 
 
 @pytest.mark.integration
-async def test_progress_detail_completion_dashboard_and_certificate(api_client, monkeypatch, student_user):
+async def test_progress_detail_completion_dashboard_and_certificate(
+    api_client, db_session, monkeypatch, student_user
+):
     async def fake_mark_completed(self, **kwargs):
         _ = kwargs
 
@@ -16,14 +19,32 @@ async def test_progress_detail_completion_dashboard_and_certificate(api_client, 
     )
 
     enrollment_id = uuid4()
+    course_id = uuid4()
     module_ids = [uuid4(), uuid4()]
     headers = {"X-Internal-Service-Token": "change-me"}
+
+    await db_session.execute(
+        text(
+            """
+            INSERT INTO enrollment.enrollments (id, student_id, course_id, status)
+            VALUES (:id, :student_id, :course_id, 'ENROLLED')
+            """
+        ),
+        {
+            "id": str(enrollment_id),
+            "student_id": student_user["id"],
+            "course_id": str(course_id),
+        },
+    )
+    await db_session.commit()
+
     init_response = await api_client.post(
         "/api/v1/progress/internal/init",
         json={
             "enrollment_id": str(enrollment_id),
             "student_id": student_user["id"],
-            "course_id": str(uuid4()),
+            "student_name": "Student Example",
+            "course_id": str(course_id),
             "course_title": "Dashboard Course",
             "modules": [
                 {"id": str(module_ids[0]), "title": "Part 1", "sort_order": 0, "is_required": True},
@@ -33,7 +54,7 @@ async def test_progress_detail_completion_dashboard_and_certificate(api_client, 
         },
         headers=headers,
     )
-    assert init_response.status_code == 200
+    assert init_response.status_code == 201
 
     detail = await api_client.get(f"/api/v1/progress/enrollments/{enrollment_id}")
     assert detail.status_code == 200
@@ -63,8 +84,8 @@ async def test_progress_detail_completion_dashboard_and_certificate(api_client, 
     assert certificates.status_code == 200
     assert len(certificates.json()["data"]) == 1
 
-    certificate_detail = await api_client.get(
-        f"/api/v1/progress/certificates/{certificate['id']}"
-    )
+    certificate_detail = await api_client.get(f"/api/v1/progress/certificates/{certificate['id']}")
     assert certificate_detail.status_code == 200
-    assert certificate_detail.json()["data"]["certificate_number"] == certificate["certificate_number"]
+    assert (
+        certificate_detail.json()["data"]["certificate_number"] == certificate["certificate_number"]
+    )

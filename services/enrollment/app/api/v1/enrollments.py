@@ -12,7 +12,12 @@ from app.schemas.enrollment import EnrollmentCreate, EnrollmentOut, EnrollmentSt
 from app.services.enrollment_service import EnrollmentService
 from educorp_common.errors import ForbiddenError
 from educorp_common.middleware.correlation import get_correlation_id
-from educorp_common.schemas.responses import Pagination, PaginatedResponse, ResponseMeta, SuccessResponse
+from educorp_common.schemas.responses import (
+    Pagination,
+    PaginatedResponse,
+    ResponseMeta,
+    SuccessResponse,
+)
 
 router = APIRouter(tags=["enrollments"])
 
@@ -46,7 +51,7 @@ async def enroll(
         correlation_id=get_correlation_id(),
     )
     if result.idempotent_hit:
-        response.status_code = status.HTTP_409_CONFLICT
+        response.status_code = status.HTTP_200_OK
     await session.commit()
     return SuccessResponse(
         data=EnrollmentOut.model_validate(result.enrollment),

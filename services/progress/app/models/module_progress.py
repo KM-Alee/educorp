@@ -3,7 +3,16 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Numeric, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from educorp_common.database.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -23,6 +32,9 @@ class ModuleProgress(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         ForeignKey("progress.student_progress.id", ondelete="CASCADE")
     )
     module_id: Mapped[UUID] = mapped_column()
+    module_title: Mapped[str] = mapped_column(String(300), default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_required: Mapped[bool] = mapped_column(Boolean, default=True)
     is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
     progress_percent: Mapped[float] = mapped_column(Numeric(5, 2), default=0.0)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)

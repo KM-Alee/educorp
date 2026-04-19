@@ -1,75 +1,65 @@
 from __future__ import annotations
 
 import asyncio
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
-from app.schemas.enrollment import EnrollmentCreate
 from app.services.enrollment_service import EnrollmentService
-from educorp_common.auth.dependencies import CurrentUser
-
-
-class StubCourseClient:
-    def __init__(self, course_context: dict) -> None:
-        self._course_context = course_context
-
-    async def get_enrollment_context(self, *, course_id):
-        _ = course_id
-        return self._course_context
-
-
-class StubProgressClient:
-    async def initialize_progress(self, **kwargs):
-        _ = kwargs
-
-    async def get_progress_summary(self, **kwargs):
-        _ = kwargs
-        return {"progress_percent": 0.0, "status": "NOT_STARTED"}
 
 
 @pytest.mark.integration
-async def test_capacity_enforced_under_concurrency(db_session_factory, fake_redis):
+async def test_capacity_enforced_under_concurrency(db_session_factory, fake_redis, monkeypatch):
     course_id = uuid4()
     course_context = {
         "course_id": str(course_id),
         "title": "Concurrency Course",
-        "visibility": "PUBLISHED",
-        "current_version_id": str(uuid4()),
+        "is_ready": True,
         "max_capacity": 1,
         "prerequisites": [],
         "modules": [],
     }
 
-    async def enroll(user: CurrentUser):
+    async def fake_context(self, *, course_id):
+        _ = course_id
+        return course_context
+
+    async def fake_user_summary(self, *, user_id):
+        return {"full_name": f"Student {str(user_id)[:8]}"}
+
+    async def fake_init(self, **kwargs):
+        _ = kwargs
+
+    monkeypatch.setattr(
+        "app.services.enrollment_service.CourseClient.get_enrollment_context",
+        fake_context,
+    )
+    monkeypatch.setattr(
+        "app.services.enrollment_service.AuthClient.get_user_summary",
+        fake_user_summary,
+    )
+    monkeypatch.setattr(
+        "app.services.enrollment_service.ProgressClient.initialize_progress",
+        fake_init,
+    )
+
+    async def enroll(student_id):
         async with db_session_factory() as session:
-            service = EnrollmentService(
-                session,
-                fake_redis,
-                course_client=StubCourseClient(course_context),
-                progress_client=StubProgressClient(),
-            )
+            service = EnrollmentService(session, fake_redis)
             try:
-                response, _ = await service.create_enrollment(
-                    current_user=user,
-                    payload=EnrollmentCreate(course_id=UUID(course_context["course_id"])),
+                result = await service.enroll(
+                    student_id=student_id,
+                    course_id=course_id,
+                    idempotency_key=None,
                     correlation_id=str(uuid4()),
                 )
-                return response.id
+                await session.commit()
+                return result.enrollment.id
             except Exception:
+                await session.rollback()
                 return None
 
-    users = [
-        CurrentUser(
-            id=str(uuid4()),
-            email=f"student-{index}@test.com",
-            roles=["student"],
-            is_active=True,
-            is_verified=True,
-        )
-        for index in range(10)
-    ]
-
-    results = await asyncio.gather(*(enroll(user) for user in users))
+    student_ids = [uuid4() for _ in range(10)]
+    results = await asyncio.gather(*(enroll(student_id) for student_id in student_ids))
     successes = [result for result in results if result is not None]
     assert len(successes) == 1

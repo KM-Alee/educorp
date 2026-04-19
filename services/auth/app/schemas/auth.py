@@ -92,6 +92,14 @@ class UserProfileOut(BaseModel):
     updated_at: datetime
 
 
+class InternalUserSummaryOut(BaseModel):
+    id: UUID
+    email: EmailStr
+    first_name: str
+    last_name: str
+    full_name: str
+
+
 class TokenUserOut(BaseModel):
     id: UUID
     email: EmailStr

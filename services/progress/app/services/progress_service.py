@@ -4,17 +4,16 @@ from datetime import datetime, timezone
 import secrets
 from uuid import UUID, uuid4
 
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.certificate import Certificate
+from app.models.module_progress import ModuleProgress
+from app.models.student_progress import StudentProgress
 from app.repositories.certificate_repository import CertificateRepository
-from app.repositories.course_repository import CourseRepository
 from app.repositories.enrollment_repository import EnrollmentRepository
 from app.repositories.module_progress_repository import ModuleProgressRepository
 from app.repositories.outbox_repository import OutboxRepository
 from app.repositories.student_progress_repository import StudentProgressRepository
-from app.repositories.user_repository import UserRepository
 from app.schemas.progress import (
     CertificateDetailOut,
     CertificateOut,
@@ -25,6 +24,8 @@ from app.schemas.progress import (
     ModuleProgressOut,
     ProgressDashboardOut,
 )
+from app.schemas.internal import ProgressInitRequest, ProgressInitResponse, ProgressSummaryResponse
+from app.services.enrollment_client import EnrollmentClient
 from educorp_common.errors import EduCorpError, ForbiddenError, NotFoundError
 
 
@@ -37,9 +38,8 @@ class ProgressService:
         self._student_progress = StudentProgressRepository(session)
         self._module_progress = ModuleProgressRepository(session)
         self._certificates = CertificateRepository(session)
-        self._courses = CourseRepository(session)
-        self._users = UserRepository(session)
         self._outbox = OutboxRepository(session)
+        self._enrollment_client = EnrollmentClient()
 
     async def get_enrollment_progress(
         self, *, enrollment_id: UUID, user_id: UUID, roles: list[str]
@@ -59,7 +59,7 @@ class ProgressService:
         modules = [
             ModuleProgressOut(
                 module_id=UUID(str(row["module_id"])),
-                module_title=str(row["title"]),
+                module_title=str(row["module_title"]),
                 is_completed=bool(row["is_completed"]),
                 progress_percent=float(row["progress_percent"] or 0.0),
                 completed_at=row.get("completed_at"),
@@ -142,7 +142,10 @@ class ProgressService:
             progress.status = "COMPLETED"
             progress.completed_at = now
             progress.progress_percent = 100.0
-            await self._enrollments.mark_completed(enrollment_id)
+            await self._enrollment_client.mark_completed(
+                enrollment_id=enrollment_id,
+                completed_at=now,
+            )
             certificate = await self._issue_certificate(
                 enrollment_id=enrollment_id,
                 student_id=student_id,
@@ -164,25 +167,96 @@ class ProgressService:
             certificate=_certificate_payload(certificate),
         )
 
-    async def get_dashboard(self, student_id: UUID) -> ProgressDashboardOut:
-        query = text(
-            "SELECT sp.course_id, sp.progress_percent, sp.status, sp.last_activity_at, c.title "
-            "FROM progress.student_progress sp "
-            "JOIN course.courses c ON c.id = sp.course_id "
-            "WHERE sp.student_id = :student_id AND c.deleted_at IS NULL "
-            "ORDER BY sp.last_activity_at DESC NULLS LAST"
+    async def initialize_progress(
+        self, *, payload: ProgressInitRequest, correlation_id: str
+    ) -> ProgressInitResponse:
+        existing = await self._student_progress.get_by_enrollment(payload.enrollment_id)
+        if existing is not None:
+            return ProgressInitResponse(
+                enrollment_id=payload.enrollment_id,
+                initialized=False,
+                status=existing.status,
+            )
+
+        progress = StudentProgress(
+            enrollment_id=payload.enrollment_id,
+            student_id=payload.student_id,
+            student_name=payload.student_name,
+            course_id=payload.course_id,
+            course_title=payload.course_title,
+            status="NOT_STARTED",
+            progress_percent=0.0,
         )
-        result = await self._session.execute(query, {"student_id": str(student_id)})
-        rows = result.mappings().all()
+        await self._student_progress.create(progress)
+
+        for module in payload.modules:
+            if not module.is_required:
+                continue
+            mp = ModuleProgress(
+                student_progress_id=progress.id,
+                module_id=module.id,
+                module_title=module.title,
+                sort_order=module.sort_order,
+                is_required=module.is_required,
+                is_completed=False,
+                progress_percent=0.0,
+            )
+            self._session.add(mp)
+        await self._session.flush()
+
+        return ProgressInitResponse(
+            enrollment_id=payload.enrollment_id,
+            initialized=True,
+            status=progress.status,
+        )
+
+    async def get_progress_summary(self, enrollment_id: UUID) -> ProgressSummaryResponse:
+        progress = await self._student_progress.get_by_enrollment(enrollment_id)
+        if progress is None:
+            raise NotFoundError("Progress not found")
+        return ProgressSummaryResponse(
+            enrollment_id=enrollment_id,
+            progress_percent=float(progress.progress_percent or 0.0),
+            status=progress.status,
+        )
+
+    async def cancel_progress(self, enrollment_id: UUID) -> ProgressSummaryResponse:
+        progress = await self._student_progress.get_by_enrollment(enrollment_id)
+        if progress is None:
+            raise NotFoundError("Progress not found")
+        progress.status = "CANCELLED"
+        await self._student_progress.update(progress)
+        return ProgressSummaryResponse(
+            enrollment_id=enrollment_id,
+            progress_percent=float(progress.progress_percent or 0.0),
+            status=progress.status,
+        )
+
+    async def get_dashboard(self, student_id: UUID) -> ProgressDashboardOut:
+        progress_rows = await self._student_progress.list_by_student(student_id)
+        visible_progress = []
+        for progress in progress_rows:
+            enrollment = await self._enrollments.get_by_id(progress.enrollment_id)
+            if enrollment is None or enrollment.status == "CANCELLED":
+                continue
+            visible_progress.append(progress)
+
+        visible_progress.sort(
+            key=lambda progress: (
+                progress.last_activity_at is None,
+                -(progress.last_activity_at.timestamp()) if progress.last_activity_at else 0.0,
+            )
+        )
+
         courses = [
             DashboardCourseOut(
-                course_id=UUID(str(row["course_id"])),
-                course_title=str(row["title"]),
-                progress_percent=float(row["progress_percent"] or 0.0),
-                status=str(row["status"]),
-                last_activity_at=row.get("last_activity_at"),
+                course_id=progress.course_id,
+                course_title=progress.course_title,
+                progress_percent=float(progress.progress_percent or 0.0),
+                status=progress.status,
+                last_activity_at=progress.last_activity_at,
             )
-            for row in rows
+            for progress in visible_progress
         ]
 
         completed_courses = len([c for c in courses if c.status == "COMPLETED"])
@@ -222,7 +296,7 @@ class ProgressService:
             student_name=certificate.student_name,
             certificate_number=certificate.certificate_number,
             issued_at=certificate.issued_at,
-            metadata=certificate.metadata or {},
+            metadata=certificate.cert_metadata or {},
         )
 
     async def _issue_certificate(
@@ -238,23 +312,20 @@ class ProgressService:
         if existing is not None:
             return existing
 
-        course_title = await self._courses.get_course_title(course_id)
-        if course_title is None:
-            raise NotFoundError("Course not found")
-        student_name = await self._users.get_full_name(student_id)
-        if student_name is None:
-            raise NotFoundError("Student not found")
+        progress = await self._student_progress.get_by_enrollment(enrollment_id)
+        if progress is None:
+            raise NotFoundError("Progress not found")
 
         certificate_number = await self._generate_certificate_number()
         certificate = Certificate(
             enrollment_id=enrollment_id,
             student_id=student_id,
             course_id=course_id,
-            course_title=course_title,
-            student_name=student_name,
+            course_title=progress.course_title,
+            student_name=progress.student_name,
             certificate_number=certificate_number,
             issued_at=completed_at,
-            metadata={},
+            cert_metadata={},
         )
         await self._certificates.create(certificate)
 

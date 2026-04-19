@@ -30,6 +30,14 @@ vi.mock('../features/courses/CoursePages', () => ({
   CourseWorkspacePage: () => <div>Course Workspace Page</div>,
 }))
 
+vi.mock('../features/learning/LearningPages', () => ({
+  DashboardPage: () => <div>Dashboard Page</div>,
+  LearningPage: () => <div>Learning Page</div>,
+  LearningEnrollmentPage: () => <div>Learning Enrollment Page</div>,
+  CertificatesPage: () => <div>Certificates Page</div>,
+  CertificateDetailPage: () => <div>Certificate Detail Page</div>,
+}))
+
 import { AppRoutes } from './router'
 import { clearSession, setSession } from '../lib/session'
 
@@ -84,7 +92,7 @@ describe('AppRoutes', () => {
     expect(screen.getByText('Profile Page')).toBeInTheDocument()
   })
 
-  it('sends signed-in students to the catalog by default', () => {
+  it('sends signed-in students to the dashboard by default', () => {
     setSession({
       accessToken: 'token',
       refreshToken: 'refresh',
@@ -99,7 +107,7 @@ describe('AppRoutes', () => {
 
     renderRoutes('/login')
 
-    expect(screen.getByText('Catalog Page')).toBeInTheDocument()
+    expect(screen.getByText('Dashboard Page')).toBeInTheDocument()
   })
 
   it('keeps admins on admin routes', () => {
@@ -138,7 +146,7 @@ describe('AppRoutes', () => {
     expect(screen.getByText('Course Workspace Page')).toBeInTheDocument()
   })
 
-  it('redirects students from /app base to catalog', () => {
+  it('redirects students from /app base to dashboard', () => {
     setSession({
       accessToken: 'token',
       refreshToken: 'refresh',
@@ -153,7 +161,7 @@ describe('AppRoutes', () => {
 
     renderRoutes('/app')
 
-    expect(screen.getByText('Catalog Page')).toBeInTheDocument()
+    expect(screen.getByText('Dashboard Page')).toBeInTheDocument()
   })
 
   it('redirects instructors from /app base to courses', () => {

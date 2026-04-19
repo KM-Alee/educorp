@@ -22,12 +22,14 @@ class ProgressClient:
         *,
         enrollment_id: UUID,
         student_id: UUID,
+        student_name: str,
         course_context: dict[str, Any],
         enrolled_at: datetime,
     ) -> None:
         payload = {
             "enrollment_id": str(enrollment_id),
             "student_id": str(student_id),
+            "student_name": student_name,
             "course_id": course_context["course_id"],
             "course_title": course_context["title"],
             "modules": course_context["modules"],
@@ -55,6 +57,16 @@ class ProgressClient:
         if response.is_error or parsed is None or "data" not in parsed:
             _raise_remote_error(response, parsed, default_code="PROGRESS_SUMMARY_ERROR")
         return dict(parsed["data"])
+
+    async def cancel_progress(self, *, enrollment_id: UUID) -> None:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                f"{self._base_url}/internal/enrollments/{enrollment_id}/cancel",
+                headers=self._headers(),
+            )
+        parsed = _parse_payload(response)
+        if response.is_error or parsed is None or "data" not in parsed:
+            _raise_remote_error(response, parsed, default_code="PROGRESS_CANCEL_ERROR")
 
     @staticmethod
     def _headers() -> dict[str, str]:

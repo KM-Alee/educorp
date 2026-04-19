@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.repositories.entitlement_repository import EntitlementRepository
 from app.services.cache import get_cached_response, set_cached_response
-from app.services.citation_service import build_citations
+from app.services.citation_service import build_citations, invalid_citation_refs
 from app.services.embedding_client import EmbeddingClient
 from app.services.event_emitter import build_assistant_query_payload, build_event, emit_event
 from app.services.llm_client import LLMClient
@@ -22,7 +22,7 @@ from educorp_common.errors import EduCorpError, ForbiddenError
 logger = structlog.get_logger()
 
 SYSTEM_PROMPT = (
-    "You are a course assistant for \"{course_title}\".\n"
+    'You are a course assistant for "{course_title}".\n'
     "Your job is to answer the student's question using ONLY the provided course material excerpts.\n\n"
     "RULES:\n"
     "1. ONLY use information from the provided excerpts. Never use external knowledge.\n"
@@ -44,6 +44,7 @@ REFUSAL_MESSAGE = (
 
 HIGH_CONFIDENCE_THRESHOLD = 0.7
 MEDIUM_CONFIDENCE_THRESHOLD = 0.5
+CLARIFY_MESSAGE = "Can you clarify what you want to know so I can find the right material?"
 
 
 class QAStreamingService:
@@ -75,16 +76,17 @@ class QAStreamingService:
     ):
         start_time = time.monotonic()
         query_id = uuid4()
-        rate_limit = (
-            settings.rate_limit_student_per_window
-            if role_scope == "student"
-            else settings.rate_limit_instructor_per_window
-        )
-        await self._rate_limiter.enforce(
-            key=f"ratelimit:ai:{user_id}:{role_scope}",
-            limit=rate_limit,
-            window_seconds=settings.rate_limit_window_seconds,
-        )
+        if role_scope != "admin":
+            rate_limit = (
+                settings.rate_limit_student_per_window
+                if role_scope == "student"
+                else settings.rate_limit_instructor_per_window
+            )
+            await self._rate_limiter.enforce(
+                key=f"ratelimit:ai:{user_id}:{role_scope}",
+                limit=rate_limit,
+                window_seconds=settings.rate_limit_window_seconds,
+            )
 
         version_id, course_title = await self._repo.get_ready_course_version(course_id)
         if version_id is None:
@@ -194,6 +196,7 @@ class QAStreamingService:
             return
 
         avg_score = sum(scores) / len(scores) if scores else 0
+        top_gap = (scores[0] - scores[1]) if len(scores) > 1 else scores[0] if scores else 0.0
         confidence = (
             "high"
             if avg_score >= HIGH_CONFIDENCE_THRESHOLD
@@ -201,6 +204,42 @@ class QAStreamingService:
             if avg_score >= MEDIUM_CONFIDENCE_THRESHOLD
             else "low"
         )
+
+        is_ambiguous = bool(
+            module_id is None
+            and len(chunks) >= 2
+            and top_gap < 0.08
+            and avg_score < HIGH_CONFIDENCE_THRESHOLD
+        )
+        if is_ambiguous:
+            await self._store_clarification_context(
+                query_id=query_id,
+                course_id=course_id,
+                user_id=user_id,
+                question=question,
+                module_id=module_id,
+            )
+            await self._emit_usage(
+                query_id=query_id,
+                user_id=user_id,
+                course_id=course_id,
+                version_id=UUID(str(version_id)),
+                question_text=question,
+                chunks=len(chunks),
+                response_status="clarification_requested",
+                citations=0,
+                latency_ms=int((time.monotonic() - start_time) * 1000),
+                tokens_used={"input": 0, "output": 0},
+                cached=False,
+            )
+            yield {"event": "clarification", "data": json.dumps({"message": CLARIFY_MESSAGE})}
+            yield {
+                "event": "done",
+                "data": json.dumps(
+                    {"query_id": str(query_id), "confidence": "low", "total_citations": 0}
+                ),
+            }
+            return
 
         formatted = "\n\n".join(
             _format_chunk(i + 1, chunk)
@@ -230,6 +269,24 @@ class QAStreamingService:
             yield {"event": "token", "data": json.dumps({"text": token})}
 
         citations = build_citations(answer, chunks)
+        if invalid_citation_refs(answer, len(chunks)):
+            await self._emit_refusal(
+                query_id=query_id,
+                user_id=user_id,
+                course_id=course_id,
+                version_id=UUID(str(version_id)),
+                question=question,
+                chunks=len(chunks),
+                start_time=start_time,
+            )
+            yield {"event": "refusal", "data": json.dumps({"message": REFUSAL_MESSAGE})}
+            yield {
+                "event": "done",
+                "data": json.dumps(
+                    {"query_id": str(query_id), "confidence": "low", "total_citations": 0}
+                ),
+            }
+            return
         for citation in citations:
             yield {"event": "citation", "data": json.dumps(citation)}
 
@@ -341,6 +398,28 @@ class QAStreamingService:
             payload=payload,
         )
         await emit_event(self._kafka_producer, event)
+
+    async def _store_clarification_context(
+        self,
+        *,
+        query_id: UUID,
+        course_id: UUID,
+        user_id: UUID,
+        question: str,
+        module_id: UUID | None,
+    ) -> None:
+        await self._redis.setex(
+            f"clarify:ai:{query_id}",
+            settings.clarify_context_ttl_seconds,
+            json.dumps(
+                {
+                    "course_id": str(course_id),
+                    "user_id": str(user_id),
+                    "question": question,
+                    "module_id": None if module_id is None else str(module_id),
+                }
+            ),
+        )
 
 
 def _format_chunk(index: int, chunk: dict) -> str:
