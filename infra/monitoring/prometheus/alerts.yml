@@ -1,0 +1,87 @@
+groups:
+  - name: educorp-availability
+    rules:
+      - alert: EduCorpServiceDown
+        expr: up{job=~".*-service"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Prometheus has not been able to scrape {{ $labels.job }} for at least 2 minutes."
+
+      - alert: EduCorpDependencyDown
+        expr: educorp_dependency_up == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dependency {{ $labels.dependency }} is degraded for {{ $labels.service }}"
+          description: "A readiness dependency is reporting down for {{ $labels.service }}."
+
+  - name: educorp-latency-and-errors
+    rules:
+      - alert: EduCorpHighErrorRate
+        expr: |
+          (
+            sum by (service) (rate(educorp_requests_total{status=~"5.."}[5m]))
+            /
+            clamp_min(sum by (service) (rate(educorp_requests_total[5m])), 0.001)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 5xx rate for {{ $labels.service }}"
+          description: "The 5xx error ratio for {{ $labels.service }} has exceeded 5% for 5 minutes."
+
+      - alert: EduCorpHighLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, service) (rate(educorp_request_duration_seconds_bucket[5m]))
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p95 latency for {{ $labels.service }}"
+          description: "The p95 HTTP latency for {{ $labels.service }} is above 2 seconds."
+
+      - alert: EduCorpAIErrorRate
+        expr: |
+          (
+            sum(rate(educorp_requests_total{service="ai-service",path=~"/api/v1/ai/ask.*",status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(educorp_requests_total{service="ai-service",path=~"/api/v1/ai/ask.*"}[5m])), 0.001)
+          ) > 0.20
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AI request failures are spiking"
+          description: "More than 20% of AI ask requests are failing over the last 3 minutes."
+
+  - name: educorp-event-pipeline
+    rules:
+      - alert: EduCorpDeadLetterGrowth
+        expr: sum by (service, event_type) (increase(educorp_domain_events_total{outcome="dead_lettered"}[15m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dead-letter events detected for {{ $labels.service }}"
+          description: "{{ $value }} events were moved to the dead-letter queue in the last 15 minutes."
+
+      - alert: EduCorpNoProcessedEvents
+        expr: |
+          sum by (service) (increase(educorp_domain_events_total{outcome="processed"}[30m])) == 0
+          and
+          on(service)
+          sum by (service) (educorp_dependency_up{dependency="postgres"}) > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No processed events observed for {{ $labels.service }}"
+          description: "The service has not recorded any processed domain events in the last 30 minutes."

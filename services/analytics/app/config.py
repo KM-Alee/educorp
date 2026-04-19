@@ -10,6 +10,7 @@ class Settings(BaseAppSettings):
     service_port: int = 8009
     internal_service_token: str = "change-me"
     analytics_consumer_group: str = "analytics-service"
+    consumer_max_retries: int = 3
     user_lifecycle_topic: str = "user.lifecycle"
     course_lifecycle_topic: str = "course.lifecycle"
     enrollment_lifecycle_topic: str = "enrollment.lifecycle"

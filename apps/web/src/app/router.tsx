@@ -171,6 +171,15 @@ function AppShellHeader({ session }: { session: SessionState }) {
             <NavLink className="app-header__link" to="/app/admin/analytics">
               Analytics
             </NavLink>
+            <NavLink className="app-header__link" to="/app/admin/workflows">
+              Workflows
+            </NavLink>
+            <NavLink className="app-header__link" to="/app/admin/audit-log">
+              Audit Log
+            </NavLink>
+            <NavLink className="app-header__link" to="/app/admin/dlq">
+              DLQ
+            </NavLink>
           </>
         ) : null}
       </nav>

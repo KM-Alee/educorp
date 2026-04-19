@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.schemas.admin import DeadLetterMessageOut
 from app.schemas.notification import (
     NotificationOut,
     NotificationPreferenceOut,
@@ -8,6 +9,7 @@ from app.schemas.notification import (
 )
 
 __all__ = [
+    "DeadLetterMessageOut",
     "NotificationOut",
     "NotificationPreferenceOut",
     "NotificationPreferenceUpdate",

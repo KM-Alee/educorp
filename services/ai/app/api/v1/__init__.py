@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.ask import router as ask_router
 from app.api.v1.instructor import router as instructor_router
 from app.dependencies import get_kafka_producer, get_mongo_db, get_qdrant, get_redis, get_session
+from educorp_common.telemetry import set_dependency_status
 
 router = APIRouter()
 
@@ -60,6 +61,9 @@ async def health_ready(
         checks["qdrant"] = "error"
 
     checks["kafka"] = "ok" if kafka_producer is not None else "unavailable"
+
+    for dependency, value in checks.items():
+        set_dependency_status(service="ai-service", dependency=dependency, ok=value == "ok")
 
     required = {name: checks[name] for name in ("postgres", "redis", "mongodb", "qdrant")}
     status_value = "ready" if all(value == "ok" for value in required.values()) else "degraded"

@@ -13,9 +13,13 @@ class BaseAppSettings(BaseSettings):
     )
 
     # General
+    service_name: str = "educorp-service"
     environment: str = "development"
     log_level: str = "INFO"
     secret_key: str = "change-me-in-production"
+    metrics_enabled: bool = True
+    traces_enabled: bool = True
+    security_headers_enabled: bool = True
 
     # JWT
     jwt_secret_key: str = "change-me-to-a-long-random-string"
@@ -37,3 +41,4 @@ class BaseAppSettings(BaseSettings):
     # Observability
     otel_exporter_otlp_endpoint: str = "http://jaeger:4317"
     otel_service_name: str = "educorp"
+    otel_traces_sampler: str = "always_on"

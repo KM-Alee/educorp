@@ -3,6 +3,18 @@ from __future__ import annotations
 import logging
 
 import structlog
+from opentelemetry.trace import get_current_span
+
+
+def _add_trace_context(
+    _logger: object, _method_name: str, event_dict: dict[str, object]
+) -> dict[str, object]:
+    span = get_current_span()
+    context = span.get_span_context()
+    if context.is_valid:
+        event_dict["trace_id"] = format(context.trace_id, "032x")
+        event_dict["span_id"] = format(context.span_id, "016x")
+    return event_dict
 
 
 def setup_logging(log_level: str = "INFO") -> None:
@@ -15,6 +27,7 @@ def setup_logging(log_level: str = "INFO") -> None:
             structlog.stdlib.add_log_level,
             structlog.stdlib.PositionalArgumentsFormatter(),
             structlog.processors.TimeStamper(fmt="iso"),
+            _add_trace_context,
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.processors.UnicodeDecoder(),

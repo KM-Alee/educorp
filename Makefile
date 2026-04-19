@@ -6,7 +6,8 @@
         kafka-topics kafka-list \
         test test-service test-coverage lint fmt \
         seed shell exec \
-        clean reset debug-service smoke-phase4 smoke-phase5 \
+        clean reset debug-service smoke-phase4 smoke-phase5 smoke-phase7 \
+        load-test dep-audit \
         up-service rebuild-service recreate-service
 
 COMPOSE = docker compose
@@ -17,6 +18,7 @@ MSG ?=
 SERVICES = auth course enrollment progress publishing ai search notification analytics
 MIGRATE_SERVICES = auth course enrollment progress publishing notification analytics
 TEST_SERVICES = enrollment progress ai
+AUDIT_SERVICES = shared auth course enrollment progress publishing ai search notification analytics
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -140,12 +142,12 @@ test-coverage: ## Run tests with coverage for SERVICE=<name>
 	uv run --project services/$(SERVICE) pytest services/$(SERVICE)/tests -v --tb=short
 
 lint: ## Run linting (ruff + mypy)
-	uv run ruff check .
-	uv run mypy .
+	uv run --group dev ruff check .
+	uv run --group dev mypy .
 
 fmt: ## Format code
-	uv run ruff format .
-	uv run ruff check --fix .
+	uv run --group dev ruff format .
+	uv run --group dev ruff check --fix .
 
 # ─── Seeding ─────────────────────────────────────
 seed: ## Seed development data
@@ -156,6 +158,26 @@ smoke-phase4: ## Run Phase 4 enroll-progress-certificate smoke
 
 smoke-phase5: ## Run Phase 5 AI smoke
 	uv run python scripts/phase5_smoke.py
+
+smoke-phase7: ## Run Phase 7 admin + observability smoke
+	uv run python scripts/phase7_ops_smoke.py
+
+load-test: ## Run Locust load scenarios against the local gateway
+	uv run --group dev locust -f tests/load/locustfile.py --headless -u $${USERS:-20} -r $${SPAWN_RATE:-4} --run-time $${RUN_TIME:-2m}
+
+dep-audit: ## Run pip-audit against shared lib and all services
+	@for svc in $(AUDIT_SERVICES); do \
+		req_file=$$(mktemp); \
+		if [ "$$svc" = "shared" ]; then \
+			echo "=== Auditing shared ==="; \
+			uv export --package educorp-common --format requirements.txt --no-hashes --no-emit-project --output-file "$$req_file" || exit $$?; \
+		else \
+			echo "=== Auditing $$svc ==="; \
+			uv export --package educorp-$$svc --format requirements.txt --no-hashes --no-emit-project --output-file "$$req_file" || exit $$?; \
+		fi; \
+		uv run --group dev pip-audit -r "$$req_file" || { rm -f "$$req_file"; exit $$?; }; \
+		rm -f "$$req_file"; \
+	done
 
 # ─── Developer Utilities ─────────────────────────
 shell: ## Open shell in SERVICE=<name> container

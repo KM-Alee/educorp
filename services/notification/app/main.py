@@ -9,10 +9,11 @@ from fastapi import FastAPI
 from app.api.v1 import router as v1_router
 from app.consumers import NotificationKafkaConsumer
 from app.config import settings
+from educorp_common.app_setup import configure_http_app
 from educorp_common.database.session import create_async_engine, create_session_factory
 from educorp_common.errors import register_exception_handlers
-from educorp_common.middleware.correlation import CorrelationIdMiddleware
 from educorp_common.middleware.logging import setup_logging
+from educorp_common.telemetry import instrument_sqlalchemy
 
 logger = structlog.get_logger()
 
@@ -27,6 +28,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.dependencies import set_engine
 
     set_engine(engine)
+    instrument_sqlalchemy(engine)
 
     session_factory = create_session_factory(engine)
     consumer: NotificationKafkaConsumer | None = None
@@ -57,7 +59,7 @@ def create_app() -> FastAPI:
     async def root_health_live() -> dict[str, str]:
         return {"status": "ok"}
 
-    app.add_middleware(CorrelationIdMiddleware)
+    configure_http_app(app, settings)
     app.include_router(v1_router, prefix="/api/v1/notifications")
     register_exception_handlers(app)
     return app

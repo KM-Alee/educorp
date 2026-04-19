@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextvars
 from uuid import uuid4
 
+import structlog
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
@@ -22,12 +23,21 @@ def get_correlation_id() -> str:
 class CorrelationIdMiddleware(BaseHTTPMiddleware):
     """Middleware that extracts or generates a correlation ID for each request."""
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         cid = request.headers.get(CORRELATION_ID_HEADER) or str(uuid4())
-        correlation_id_ctx.set(cid)
+        token = correlation_id_ctx.set(cid)
+        structlog.contextvars.clear_contextvars()
+        structlog.contextvars.bind_contextvars(
+            correlation_id=cid,
+            path=request.url.path,
+            method=request.method,
+        )
+        request.state.correlation_id = cid
 
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        finally:
+            correlation_id_ctx.reset(token)
+
         response.headers[CORRELATION_ID_HEADER] = cid
         return response

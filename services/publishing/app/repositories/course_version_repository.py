@@ -26,9 +26,13 @@ class CourseVersionRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_active_publishing_for_course(
-        self, course_id: UUID
-    ) -> CourseVersion | None:
+    async def get_by_workflow_id(self, workflow_id: str) -> CourseVersion | None:
+        result = await self._session.execute(
+            select(CourseVersion).where(CourseVersion.workflow_id == workflow_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_active_publishing_for_course(self, course_id: UUID) -> CourseVersion | None:
         result = await self._session.execute(
             select(CourseVersion).where(
                 CourseVersion.course_id == course_id,
@@ -57,6 +61,35 @@ class CourseVersionRepository:
         version.run_id = run_id
         return await self.update(version)
 
+    async def list_workflows(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        status: str | None,
+        course_id: UUID | None,
+    ) -> tuple[list[CourseVersion], int]:
+        filters = []
+        if status:
+            filters.append(CourseVersion.status == status)
+        if course_id is not None:
+            filters.append(CourseVersion.course_id == course_id)
+
+        stmt = select(CourseVersion)
+        count_stmt = select(func.count()).select_from(CourseVersion)
+        if filters:
+            stmt = stmt.where(*filters)
+            count_stmt = count_stmt.where(*filters)
+
+        stmt = (
+            stmt.order_by(CourseVersion.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        result = await self._session.execute(stmt)
+        total = await self._session.scalar(count_stmt)
+        return list(result.scalars().all()), int(total or 0)
+
     async def get_active_version_id_for_course(
         self, course_id: UUID, *, exclude_version_id: UUID
     ) -> UUID | None:
@@ -71,9 +104,7 @@ class CourseVersionRepository:
         )
         return result.scalar_one_or_none()
 
-    async def list_superseded_before_retention(
-        self, *, retention_days: int
-    ) -> list[CourseVersion]:
+    async def list_superseded_before_retention(self, *, retention_days: int) -> list[CourseVersion]:
         """Return SUPERSEDED versions whose superseded_at is older than retention_days."""
         cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
         result = await self._session.execute(

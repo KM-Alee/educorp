@@ -19,6 +19,10 @@ class Settings(BaseAppSettings):
     instructor_auto_approve: bool = False
 
     internal_service_token: str = "change-me"
+    publishing_service_url: str = "http://publishing-service:8000/api/v1/publishing"
+    notification_service_url: str = "http://notification-service:8000/api/v1/notifications"
+    analytics_service_url: str = "http://analytics-service:8000/api/v1/analytics"
+    enrollment_service_url: str = "http://enrollment-service:8000/api/v1/enrollments"
     user_lifecycle_topic: str = "user.lifecycle"
     relay_poll_interval_seconds: float = 2.0
 

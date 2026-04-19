@@ -17,7 +17,11 @@ vi.mock('../features/profile/ProfilePage', () => ({
 
 vi.mock('../features/admin/AdminPages', () => ({
   AdminApplicationsPage: () => <div>Applications Page</div>,
+  AdminAnalyticsPage: () => <div>Analytics Page</div>,
+  AdminAuditLogPage: () => <div>Audit Log Page</div>,
+  AdminDLQPage: () => <div>DLQ Page</div>,
   AdminUsersPage: () => <div>Users Page</div>,
+  AdminWorkflowsPage: () => <div>Workflows Page</div>,
 }))
 
 vi.mock('../features/catalog/CatalogPages', () => ({

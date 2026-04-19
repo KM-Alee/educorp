@@ -83,6 +83,63 @@ export interface InstructorApplication {
   created_at: string
 }
 
+export interface PlatformAnalytics {
+  from_date: string
+  to_date: string
+  total_students: number
+  enrollments: number
+  completions: number
+  ai_usage: number
+  published_courses: number
+}
+
+export interface AdminAuditLog {
+  id: string
+  source: string
+  actor_id: string | null
+  actor_type: string | null
+  action: string
+  resource_type: string
+  resource_id: string | null
+  details: Record<string, unknown>
+  correlation_id: string | null
+  created_at: string
+}
+
+export interface AdminWorkflowSummary {
+  version_id: string
+  workflow_id: string | null
+  run_id: string | null
+  course_id: string
+  status: string
+  approval_state: string | null
+  error_details: Record<string, unknown> | null
+  created_at: string
+  processing_started_at: string | null
+  processing_completed_at: string | null
+  ready_at: string | null
+  activated_at: string | null
+}
+
+export interface AdminWorkflowDetail extends AdminWorkflowSummary {
+  steps: Array<Record<string, unknown>>
+  artifacts: Array<Record<string, unknown>>
+}
+
+export interface AdminDeadLetter {
+  id: string
+  source: string
+  topic: string
+  partition: number
+  offset: number
+  event_type: string | null
+  error_message: string
+  retry_count: number
+  raw_message: Record<string, unknown>
+  replayed_at: string | null
+  created_at: string
+}
+
 export interface AdminUser {
   id: string
   email: string
@@ -1256,6 +1313,103 @@ export async function reviewInstructorApplication(input: {
     { auth: true },
   )
 
+  return response.data
+}
+
+export async function getPlatformAnalytics(input: {
+  from_date: string
+  to_date: string
+}): Promise<PlatformAnalytics> {
+  const params = new URLSearchParams({
+    from_date: input.from_date,
+    to_date: input.to_date,
+  })
+  const response = await requestEnvelope<PlatformAnalytics>(
+    `/api/v1/analytics/platform?${params.toString()}`,
+    {},
+    { auth: true },
+  )
+  return response.data
+}
+
+export async function listAdminAuditLog(filters: {
+  actor_id?: string
+  action?: string
+  resource_type?: string
+  resource_id?: string
+  from_date?: string
+  to_date?: string
+  page?: number
+  page_size?: number
+}): Promise<PaginatedResponse<AdminAuditLog>> {
+  const params = new URLSearchParams()
+  params.set('page', String(filters.page ?? 1))
+  params.set('page_size', String(filters.page_size ?? 20))
+  if (filters.actor_id) params.set('actor_id', filters.actor_id)
+  if (filters.action) params.set('action', filters.action)
+  if (filters.resource_type) params.set('resource_type', filters.resource_type)
+  if (filters.resource_id) params.set('resource_id', filters.resource_id)
+  if (filters.from_date) params.set('from_date', filters.from_date)
+  if (filters.to_date) params.set('to_date', filters.to_date)
+  return requestPaginated<AdminAuditLog>(`${AUTH_BASE}/admin/audit-log?${params.toString()}`)
+}
+
+export async function listAdminWorkflows(filters: {
+  status?: string
+  course_id?: string
+  page?: number
+  page_size?: number
+}): Promise<PaginatedResponse<AdminWorkflowSummary>> {
+  const params = new URLSearchParams()
+  params.set('page', String(filters.page ?? 1))
+  params.set('page_size', String(filters.page_size ?? 20))
+  if (filters.status) params.set('status', filters.status)
+  if (filters.course_id) params.set('course_id', filters.course_id)
+  return requestPaginated<AdminWorkflowSummary>(`${AUTH_BASE}/admin/workflows?${params.toString()}`)
+}
+
+export async function getAdminWorkflow(workflowId: string): Promise<AdminWorkflowDetail> {
+  const response = await requestEnvelope<AdminWorkflowDetail>(
+    `${AUTH_BASE}/admin/workflows/${workflowId}`,
+    {},
+    { auth: true },
+  )
+  return response.data
+}
+
+export async function retryAdminWorkflow(workflowId: string): Promise<AdminWorkflowSummary> {
+  const response = await requestEnvelope<AdminWorkflowSummary>(
+    `${AUTH_BASE}/admin/workflows/${workflowId}/retry`,
+    { method: 'POST' },
+    { auth: true },
+  )
+  return response.data
+}
+
+export async function listAdminDlq(filters: {
+  topic?: string
+  page?: number
+  page_size?: number
+}): Promise<PaginatedResponse<AdminDeadLetter>> {
+  const params = new URLSearchParams()
+  params.set('page', String(filters.page ?? 1))
+  params.set('page_size', String(filters.page_size ?? 20))
+  if (filters.topic) params.set('topic', filters.topic)
+  return requestPaginated<AdminDeadLetter>(`${AUTH_BASE}/admin/dlq?${params.toString()}`)
+}
+
+export async function replayAdminDlqMessage(input: {
+  messageId: string
+  source: string
+}): Promise<AdminDeadLetter> {
+  const response = await requestEnvelope<AdminDeadLetter>(
+    `${AUTH_BASE}/admin/dlq/${input.messageId}/replay`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ source: input.source }),
+    },
+    { auth: true },
+  )
   return response.data
 }
 

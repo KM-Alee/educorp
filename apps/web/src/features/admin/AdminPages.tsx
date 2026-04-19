@@ -3,9 +3,16 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import {
+  getAdminWorkflow,
+  getPlatformAnalytics,
   listAdminUsers,
+  listAdminAuditLog,
+  listAdminDlq,
+  listAdminWorkflows,
   listInstructorApplications,
+  replayAdminDlqMessage,
   reviewInstructorApplication,
+  retryAdminWorkflow,
   updateAdminUserRoles,
   updateAdminUserStatus,
 } from '../../lib/api'
@@ -281,6 +288,15 @@ export function AdminApplicationsPage() {
 }
 
 export function AdminAnalyticsPage() {
+  const today = new Date().toISOString().slice(0, 10)
+  const [fromDate, setFromDate] = useState(today)
+  const [toDate, setToDate] = useState(today)
+
+  const analyticsQuery = useQuery({
+    queryKey: ['admin-platform-analytics', fromDate, toDate],
+    queryFn: () => getPlatformAnalytics({ from_date: fromDate, to_date: toDate }),
+  })
+
   return (
     <div className="page-stack">
       <div className="page-header">
@@ -290,34 +306,63 @@ export function AdminAnalyticsPage() {
         </p>
       </div>
 
-      <div className="stat-row">
-        <div className="stat-item">
-          <div className="stat-item__label">Total users</div>
-          <div className="stat-item__value">--</div>
+      <div className="card">
+        <div className="filter-bar" style={{ marginBottom: '1rem' }}>
+          <label className="form-field">
+            <span className="form-field__label">From</span>
+            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+          </label>
+          <label className="form-field">
+            <span className="form-field__label">To</span>
+            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          </label>
         </div>
-        <div className="stat-item">
-          <div className="stat-item__label">Active enrollments</div>
-          <div className="stat-item__value">--</div>
-        </div>
-        <div className="stat-item">
-          <div className="stat-item__label">Certificates issued</div>
-          <div className="stat-item__value">--</div>
-        </div>
-        <div className="stat-item">
-          <div className="stat-item__label">Published courses</div>
-          <div className="stat-item__value">--</div>
-        </div>
-      </div>
 
-      <div className="placeholder-page">
-        <div className="placeholder-page__icon">&#128200;</div>
-        <h2 className="placeholder-page__title">Analytics dashboard coming soon</h2>
-        <p className="placeholder-page__description">
-          Kafka consumers will aggregate enrollment, completion, and engagement events
-          into real-time analytics views.
-        </p>
-        <div className="placeholder-page__badge">
-          <span className="badge badge--warning">Phase 6</span>
+        {analyticsQuery.isError ? (
+          <div className="message message--error" role="alert">
+            {getErrorMessage(analyticsQuery.error)}
+          </div>
+        ) : null}
+
+        <div className="stat-row">
+          <div className="stat-item">
+            <div className="stat-item__label">Total users</div>
+            <div className="stat-item__value">{analyticsQuery.data?.total_students ?? '--'}</div>
+          </div>
+          <div className="stat-item">
+            <div className="stat-item__label">Enrollments</div>
+            <div className="stat-item__value">{analyticsQuery.data?.enrollments ?? '--'}</div>
+          </div>
+          <div className="stat-item">
+            <div className="stat-item__label">Completions</div>
+            <div className="stat-item__value">{analyticsQuery.data?.completions ?? '--'}</div>
+          </div>
+          <div className="stat-item">
+            <div className="stat-item__label">Published courses</div>
+            <div className="stat-item__value">{analyticsQuery.data?.published_courses ?? '--'}</div>
+          </div>
+          <div className="stat-item">
+            <div className="stat-item__label">AI usage</div>
+            <div className="stat-item__value">{analyticsQuery.data?.ai_usage ?? '--'}</div>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table className="table">
+            <tbody>
+              <tr>
+                <th>Window</th>
+                <td>{fromDate} to {toDate}</td>
+              </tr>
+              <tr>
+                <th>Completion ratio</th>
+                <td>
+                  {analyticsQuery.data && analyticsQuery.data.enrollments > 0
+                    ? `${((analyticsQuery.data.completions / analyticsQuery.data.enrollments) * 100).toFixed(1)}%`
+                    : '--'}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -325,6 +370,31 @@ export function AdminAnalyticsPage() {
 }
 
 export function AdminWorkflowsPage() {
+  const queryClient = useQueryClient()
+  const [status, setStatus] = useState('')
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null)
+
+  const workflowsQuery = useQuery({
+    queryKey: ['admin-workflows', status],
+    queryFn: () => listAdminWorkflows({ status }),
+  })
+
+  const workflowDetailQuery = useQuery({
+    queryKey: ['admin-workflow-detail', selectedWorkflowId],
+    queryFn: () => getAdminWorkflow(selectedWorkflowId as string),
+    enabled: Boolean(selectedWorkflowId),
+  })
+
+  const retryMutation = useMutation({
+    mutationFn: retryAdminWorkflow,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin-workflows'] })
+      if (selectedWorkflowId) {
+        await queryClient.invalidateQueries({ queryKey: ['admin-workflow-detail', selectedWorkflowId] })
+      }
+    },
+  })
+
   return (
     <div className="page-stack">
       <div className="page-header">
@@ -334,22 +404,117 @@ export function AdminWorkflowsPage() {
         </p>
       </div>
 
-      <div className="placeholder-page">
-        <div className="placeholder-page__icon">&#9881;</div>
-        <h2 className="placeholder-page__title">Workflow monitor</h2>
-        <p className="placeholder-page__description">
-          Active publishing workflows, their current step, and completion status will be
-          displayed here. Admins can retry or cancel stuck workflows.
-        </p>
-        <div className="placeholder-page__badge">
-          <span className="badge badge--warning">Phase 6</span>
+      <div className="card">
+        <div className="filter-bar" style={{ marginBottom: '1rem' }}>
+          <label className="form-field">
+            <span className="form-field__label">Status</span>
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="">All</option>
+              <option value="FAILED">Failed</option>
+              <option value="READY">Ready</option>
+              <option value="PREPARING">Preparing</option>
+              <option value="PUBLISHING">Publishing</option>
+              <option value="CANCELLED">Cancelled</option>
+            </select>
+          </label>
         </div>
+
+        {workflowsQuery.isError ? (
+          <div className="message message--error" role="alert">
+            {getErrorMessage(workflowsQuery.error)}
+          </div>
+        ) : null}
+
+        {retryMutation.isError ? (
+          <div className="message message--error" role="alert" style={{ marginBottom: '0.75rem' }}>
+            {getErrorMessage(retryMutation.error)}
+          </div>
+        ) : null}
+
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Workflow</th>
+                <th>Status</th>
+                <th>Course</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {workflowsQuery.data?.data.map((workflow) => (
+                <tr key={workflow.workflow_id ?? workflow.version_id}>
+                  <td>
+                    <div className="mono">{workflow.workflow_id ?? workflow.version_id}</div>
+                    <div className="table__secondary">Version {workflow.version_id}</div>
+                  </td>
+                  <td>
+                    <span className="badge">{workflow.status}</span>
+                  </td>
+                  <td className="mono">{workflow.course_id}</td>
+                  <td>
+                    <div className="btn-row">
+                      <button className="btn btn--sm btn--ghost" type="button" onClick={() => setSelectedWorkflowId(workflow.workflow_id)}>
+                        Inspect
+                      </button>
+                      <button
+                        className="btn btn--sm btn--primary"
+                        disabled={retryMutation.isPending || !workflow.workflow_id || workflow.status !== 'FAILED'}
+                        type="button"
+                        onClick={() => workflow.workflow_id && retryMutation.mutate(workflow.workflow_id)}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {selectedWorkflowId && workflowDetailQuery.data ? (
+          <div className="card card--subtle" style={{ marginTop: '1rem' }}>
+            <div className="card__header">
+              <h2 className="card__title">Workflow detail</h2>
+              <p className="card__description mono">{selectedWorkflowId}</p>
+            </div>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Step</th>
+                    <th>Status</th>
+                    <th>Error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {workflowDetailQuery.data.steps.map((step, index) => (
+                    <tr key={`${String(step.id ?? index)}`}>
+                      <td>{String(step.step_name ?? 'unknown')}</td>
+                      <td>{String(step.status ?? 'unknown')}</td>
+                      <td>{String(step.error_message ?? '')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )
 }
 
 export function AdminAuditLogPage() {
+  const [actorId, setActorId] = useState('')
+  const [action, setAction] = useState('')
+
+  const auditQuery = useQuery({
+    queryKey: ['admin-audit-log', actorId, action],
+    queryFn: () => listAdminAuditLog({ actor_id: actorId, action }),
+  })
+
   return (
     <div className="page-stack">
       <div className="page-header">
@@ -363,28 +528,77 @@ export function AdminAuditLogPage() {
         <div className="filter-bar" style={{ marginBottom: '1rem' }}>
           <label className="form-field">
             <span className="form-field__label">Actor</span>
-            <input placeholder="User ID or email" disabled />
+            <input placeholder="User ID" value={actorId} onChange={(e) => setActorId(e.target.value)} />
           </label>
           <label className="form-field">
             <span className="form-field__label">Action type</span>
-            <select disabled>
+            <select value={action} onChange={(e) => setAction(e.target.value)}>
               <option value="">All actions</option>
-              <option value="role_change">Role change</option>
-              <option value="publish">Publish</option>
-              <option value="account_status">Account status</option>
+              <option value="user.roles_updated">Role change</option>
+              <option value="user.status_updated">Account status</option>
+              <option value="enrollment.created">Enrollment created</option>
             </select>
           </label>
         </div>
 
-        <div className="empty">
-          Audit events will appear here once the analytics Kafka consumers are operational.
+        {auditQuery.isError ? (
+          <div className="message message--error" role="alert">
+            {getErrorMessage(auditQuery.error)}
+          </div>
+        ) : null}
+
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Source</th>
+                <th>Action</th>
+                <th>Resource</th>
+                <th>Correlation</th>
+              </tr>
+            </thead>
+            <tbody>
+              {auditQuery.data?.data.map((entry) => (
+                <tr key={`${entry.source}-${entry.id}`}>
+                  <td>{new Date(entry.created_at).toLocaleString()}</td>
+                  <td><span className="badge">{entry.source}</span></td>
+                  <td>{entry.action}</td>
+                  <td>
+                    <div>{entry.resource_type}</div>
+                    <div className="table__secondary mono">{entry.resource_id ?? '-'}</div>
+                  </td>
+                  <td className="mono">{entry.correlation_id ?? '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+
+        {!auditQuery.isLoading && !auditQuery.data?.data.length ? (
+          <div className="empty">No audit records match the current filters.</div>
+        ) : null}
       </div>
     </div>
   )
 }
 
 export function AdminDLQPage() {
+  const queryClient = useQueryClient()
+  const [topic, setTopic] = useState('')
+
+  const dlqQuery = useQuery({
+    queryKey: ['admin-dlq', topic],
+    queryFn: () => listAdminDlq({ topic }),
+  })
+
+  const replayMutation = useMutation({
+    mutationFn: replayAdminDlqMessage,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin-dlq'] })
+    },
+  })
+
   return (
     <div className="page-stack">
       <div className="page-header">
@@ -402,10 +616,63 @@ export function AdminDLQPage() {
           </p>
         </div>
 
-        <div className="empty">
-          No dead-letter messages. The Kafka consumer pipeline will populate this queue when
-          message processing fails after retries.
+        <div className="filter-bar" style={{ marginBottom: '1rem' }}>
+          <label className="form-field">
+            <span className="form-field__label">Topic</span>
+            <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="course.lifecycle" />
+          </label>
         </div>
+
+        {dlqQuery.isError ? (
+          <div className="message message--error" role="alert">
+            {getErrorMessage(dlqQuery.error)}
+          </div>
+        ) : null}
+
+        {replayMutation.isError ? (
+          <div className="message message--error" role="alert" style={{ marginBottom: '0.75rem' }}>
+            {getErrorMessage(replayMutation.error)}
+          </div>
+        ) : null}
+
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Topic</th>
+                <th>Error</th>
+                <th>Replay</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dlqQuery.data?.data.map((message) => (
+                <tr key={`${message.source}-${message.id}`}>
+                  <td><span className="badge">{message.source}</span></td>
+                  <td>
+                    <div>{message.topic}</div>
+                    <div className="table__secondary mono">{message.event_type ?? '-'}</div>
+                  </td>
+                  <td>{message.error_message}</td>
+                  <td>
+                    <button
+                      className="btn btn--sm btn--primary"
+                      type="button"
+                      disabled={replayMutation.isPending}
+                      onClick={() => replayMutation.mutate({ messageId: message.id, source: message.source })}
+                    >
+                      Replay
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {!dlqQuery.isLoading && !dlqQuery.data?.data.length ? (
+          <div className="empty">No dead-letter messages right now.</div>
+        ) : null}
       </div>
     </div>
   )

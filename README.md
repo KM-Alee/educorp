@@ -2,6 +2,8 @@
 
 Intelligent course delivery platform with a first-party web app and 9 FastAPI microservices communicating via REST, Kafka events, and Temporal workflows.
 
+Phase 7 adds the production-readiness layer: shared tracing and metrics wiring, security headers, readiness dependency metrics, admin ops APIs for workflow/DLQ/audit visibility, provisioned Grafana dashboards, Prometheus alert rules, load-test scaffolding, and an operations smoke script.
+
 ## Quick Start
 
 ```bash
@@ -59,6 +61,32 @@ The first-party learner/admin web app lives in `apps/web` and is developed in pa
 | MinIO | http://localhost:9001 | educorp / educorp_dev |
 | Jaeger | http://localhost:16686 | — |
 
+## Phase 7 Operations
+
+Observability and operational surfaces are now provisioned for local verification:
+
+- Prometheus scrapes every service `/metrics` endpoint and loads `infra/monitoring/prometheus/alerts.yml`
+- Grafana provisions dashboards from `infra/monitoring/grafana/dashboards/`
+- Jaeger receives OTLP traces on `4317`
+- Admin ops routes are available under `/api/v1/admin/*` for audit log, workflows, and DLQ inspection
+
+Recommended verification flow:
+
+```bash
+make up-full
+make seed
+make smoke-phase4
+make smoke-phase5
+make smoke-phase7
+```
+
+Load and dependency audit helpers:
+
+```bash
+make load-test USERS=20 SPAWN_RATE=4 RUN_TIME=2m
+make dep-audit
+```
+
 ## Development Commands
 
 ```bash
@@ -73,6 +101,11 @@ make lint            # Run ruff + mypy
 make kafka-topics    # Create Kafka topics
 make kafka-list      # List Kafka topics
 make seed            # Seed development data
+make smoke-phase4    # Journey B smoke: enroll -> progress -> certificate
+make smoke-phase5    # Journey C smoke: AI ask + instructor job
+make smoke-phase7    # Admin ops + observability smoke
+make load-test       # Locust load run against local gateway
+make dep-audit       # pip-audit for shared + all services
 make clean           # Remove containers + volumes
 make reset           # Full reset: clean + build + up + migrate + seed
 
@@ -133,6 +166,8 @@ See the [docs/](docs/) directory for detailed design documentation.
 - `docs/FRONTEND.md` — web app structure, UI system, and route plan
 - `docs/PHASES.md` — backend and frontend delivery phases
 - `docs/PHASE3_IMPLEMENTATION_PLAN.md` — concrete implementation sequence for publishing and search
+- `docs/OBSERVABILITY.md` — metrics, traces, dashboards, alerts, and runbook guidance
+- `docs/SECURITY.md` — auth, RBAC, input validation, rate limiting, and hardening notes
 
 
 #swagger

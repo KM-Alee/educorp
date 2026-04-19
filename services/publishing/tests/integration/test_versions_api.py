@@ -4,10 +4,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
-from httpx import ASGITransport, AsyncClient
-
 from app.dependencies import get_current_user, get_session
 from app.main import create_app
+from httpx import ASGITransport, AsyncClient
+
 from educorp_common.auth.dependencies import CurrentUser
 
 
@@ -23,8 +23,8 @@ async def test_approve_version_signals_workflow_and_updates_approval_state() -> 
     session = AsyncMock()
     user = CurrentUser(
         id=str(uuid4()),
-        email="inst@test.com",
-        roles=["instructor"],
+        email="admin@test.com",
+        roles=["admin"],
         is_active=True,
         is_verified=True,
     )
@@ -49,10 +49,11 @@ async def test_approve_version_signals_workflow_and_updates_approval_state() -> 
         workflow_id="publish-123",
     )
 
-    with patch("app.api.v1.versions.PublishingVersionService") as MockSvc, patch(
-        "app.api.v1.versions.Client.connect"
-    ) as mock_connect:
-        service = MockSvc.return_value
+    with (
+        patch("app.api.v1.versions.PublishingVersionService") as mock_service_cls,
+        patch("app.api.v1.versions.Client.connect") as mock_connect,
+    ):
+        service = mock_service_cls.return_value
         service.get_status = AsyncMock(return_value=(version, [], []))
         service.mark_approval_requested = AsyncMock(return_value=approved_version)
 

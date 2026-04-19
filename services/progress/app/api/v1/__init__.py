@@ -13,6 +13,7 @@ from app.schemas.internal import ProgressInitRequest, ProgressInitResponse, Prog
 from app.services.progress_service import ProgressService
 from educorp_common.middleware.correlation import get_correlation_id
 from educorp_common.schemas.responses import ResponseMeta, SuccessResponse
+from educorp_common.telemetry import set_dependency_status
 
 router = APIRouter()
 
@@ -45,6 +46,9 @@ async def health_ready(
         checks["postgres"] = "ok"
     except Exception:
         checks["postgres"] = "error"
+
+    for dependency, value in checks.items():
+        set_dependency_status(service="progress-service", dependency=dependency, ok=value == "ok")
 
     status_value = "ready" if all(value == "ok" for value in checks.values()) else "degraded"
     if status_value != "ready":
