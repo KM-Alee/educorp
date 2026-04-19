@@ -279,3 +279,134 @@ export function AdminApplicationsPage() {
     </div>
   )
 }
+
+export function AdminAnalyticsPage() {
+  return (
+    <div className="page-stack">
+      <div className="page-header">
+        <h1 className="page-header__title">Platform analytics</h1>
+        <p className="page-header__description">
+          Enrollment trends, course completion rates, and platform health metrics.
+        </p>
+      </div>
+
+      <div className="stat-row">
+        <div className="stat-item">
+          <div className="stat-item__label">Total users</div>
+          <div className="stat-item__value">--</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-item__label">Active enrollments</div>
+          <div className="stat-item__value">--</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-item__label">Certificates issued</div>
+          <div className="stat-item__value">--</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-item__label">Published courses</div>
+          <div className="stat-item__value">--</div>
+        </div>
+      </div>
+
+      <div className="placeholder-page">
+        <div className="placeholder-page__icon">&#128200;</div>
+        <h2 className="placeholder-page__title">Analytics dashboard coming soon</h2>
+        <p className="placeholder-page__description">
+          Kafka consumers will aggregate enrollment, completion, and engagement events
+          into real-time analytics views.
+        </p>
+        <div className="placeholder-page__badge">
+          <span className="badge badge--warning">Phase 6</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function AdminWorkflowsPage() {
+  return (
+    <div className="page-stack">
+      <div className="page-header">
+        <h1 className="page-header__title">Workflow operations</h1>
+        <p className="page-header__description">
+          Monitor Temporal publishing workflows, retry failed runs, and inspect execution history.
+        </p>
+      </div>
+
+      <div className="placeholder-page">
+        <div className="placeholder-page__icon">&#9881;</div>
+        <h2 className="placeholder-page__title">Workflow monitor</h2>
+        <p className="placeholder-page__description">
+          Active publishing workflows, their current step, and completion status will be
+          displayed here. Admins can retry or cancel stuck workflows.
+        </p>
+        <div className="placeholder-page__badge">
+          <span className="badge badge--warning">Phase 6</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function AdminAuditLogPage() {
+  return (
+    <div className="page-stack">
+      <div className="page-header">
+        <h1 className="page-header__title">Audit log</h1>
+        <p className="page-header__description">
+          Immutable record of administrative actions, role changes, and security events.
+        </p>
+      </div>
+
+      <div className="card">
+        <div className="filter-bar" style={{ marginBottom: '1rem' }}>
+          <label className="form-field">
+            <span className="form-field__label">Actor</span>
+            <input placeholder="User ID or email" disabled />
+          </label>
+          <label className="form-field">
+            <span className="form-field__label">Action type</span>
+            <select disabled>
+              <option value="">All actions</option>
+              <option value="role_change">Role change</option>
+              <option value="publish">Publish</option>
+              <option value="account_status">Account status</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="empty">
+          Audit events will appear here once the analytics Kafka consumers are operational.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function AdminDLQPage() {
+  return (
+    <div className="page-stack">
+      <div className="page-header">
+        <h1 className="page-header__title">Dead letter queue</h1>
+        <p className="page-header__description">
+          Inspect and replay failed Kafka messages that exceeded retry limits.
+        </p>
+      </div>
+
+      <div className="card">
+        <div className="card__header">
+          <h2 className="card__title">Failed messages</h2>
+          <p className="card__description">
+            Messages that could not be processed after maximum retries. Review the payload and replay or discard.
+          </p>
+        </div>
+
+        <div className="empty">
+          No dead-letter messages. The Kafka consumer pipeline will populate this queue when
+          message processing fails after retries.
+        </div>
+      </div>
+    </div>
+  )
+}

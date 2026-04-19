@@ -34,6 +34,8 @@ interface AssistantPanelProps {
 interface EnhancementPanelProps {
   courseId: string
   modules: ModuleDetail[]
+  canEnhance?: boolean
+  disabledMessage?: string
 }
 
 function statusBadgeClass(status: string): string {
@@ -57,6 +59,10 @@ function parseJson<T>(data: string | null): T | null {
 }
 
 function renderJobOutput(job: AIEnhancementJob | null): string {
+  if (job?.error?.message) {
+    return job.error.message
+  }
+
   if (!job?.result) {
     return 'Waiting for output...'
   }
@@ -98,6 +104,8 @@ export function AIAssistantPanel({
           ...last,
           content: `${last.content}${text}`,
         }
+      } else {
+        next.push({ role: 'assistant', content: text, citations: [] })
       }
       return next
     })
@@ -112,13 +120,62 @@ export function AIAssistantPanel({
           ...last,
           citations: [...(last.citations ?? []), citation],
         }
+      } else {
+        next.push({ role: 'assistant', content: '', citations: [citation] })
       }
       return next
     })
   }
 
+  async function handleAskNonStreaming(promptOverride?: string) {
+    const prompt = (promptOverride ?? question).trim()
+    if (!canAsk || !prompt) {
+      return
+    }
+
+    setError('')
+    const isClarification = Boolean(pendingClarificationQueryId)
+    const userMessage: Message = { role: 'user', content: prompt }
+    setMessages((prev) => [...prev, userMessage])
+    setQuestion('')
+
+    try {
+      const result = isClarification && pendingClarificationQueryId
+        ? await askAIClarify({
+            course_id: courseId,
+            original_query_id: pendingClarificationQueryId,
+            clarification: prompt,
+          })
+        : await askAI({
+            course_id: courseId,
+            question: prompt,
+            module_id: selectedModule || null,
+          })
+
+      setPendingClarificationQueryId(
+        result.response_type === 'clarification' ? result.query_id : null,
+      )
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: result.answer,
+          citations: result.citations,
+        },
+      ])
+    } catch (err) {
+      setError(getErrorMessage(err))
+    }
+  }
+
   async function handleAsk() {
-    if (!canAsk || !question.trim()) {
+    const prompt = question.trim()
+    if (!canAsk || !prompt) {
+      return
+    }
+
+    if (pendingClarificationQueryId) {
+      await handleAskNonStreaming(prompt)
       return
     }
 
@@ -127,7 +184,7 @@ export function AIAssistantPanel({
     setPendingClarificationQueryId(null)
     clarificationPendingRef.current = false
 
-    const userMessage: Message = { role: 'user', content: question }
+    const userMessage: Message = { role: 'user', content: prompt }
     const assistantMessage: Message = { role: 'assistant', content: '', citations: [] }
     setMessages((prev) => [...prev, userMessage, assistantMessage])
     setQuestion('')
@@ -193,48 +250,6 @@ export function AIAssistantPanel({
     }
   }
 
-  async function handleAskNonStreaming() {
-    if (!canAsk || !question.trim()) {
-      return
-    }
-
-    setError('')
-
-    const prompt = question
-    const isClarification = Boolean(pendingClarificationQueryId)
-    const userMessage: Message = { role: 'user', content: prompt }
-    setMessages((prev) => [...prev, userMessage])
-    setQuestion('')
-
-    try {
-      const result = isClarification && pendingClarificationQueryId
-        ? await askAIClarify({
-            course_id: courseId,
-            original_query_id: pendingClarificationQueryId,
-            clarification: prompt,
-          })
-        : await askAI({
-            course_id: courseId,
-            question: prompt,
-            module_id: selectedModule || null,
-          })
-
-      setPendingClarificationQueryId(
-        result.response_type === 'clarification' ? result.query_id : null,
-      )
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: result.answer,
-          citations: result.citations,
-        },
-      ])
-    } catch (err) {
-      setError(getErrorMessage(err))
-    }
-  }
-
   return (
     <section className="ai-panel">
       <div className="ai-panel__header">
@@ -287,7 +302,7 @@ export function AIAssistantPanel({
             type="button"
             disabled={isStreaming || !canAsk}
           >
-            {isStreaming ? 'Streaming...' : pendingClarificationQueryId ? 'Clarify (stream)' : 'Ask (stream)'}
+            {isStreaming ? 'Streaming...' : pendingClarificationQueryId ? 'Clarify' : 'Ask (stream)'}
           </button>
           <button
             className="btn btn--ghost"
@@ -331,7 +346,7 @@ export function AIAssistantPanel({
   )
 }
 
-export function AIEnhancementPanel({ courseId, modules }: EnhancementPanelProps) {
+export function AIEnhancementPanel({ courseId, modules, canEnhance = true, disabledMessage }: EnhancementPanelProps) {
   const queryClient = useQueryClient()
   const [jobType, setJobType] = useState('summary')
   const [scope, setScope] = useState('course')
@@ -506,6 +521,8 @@ export function AIEnhancementPanel({ courseId, modules }: EnhancementPanelProps)
         </div>
       </div>
 
+      {!canEnhance && disabledMessage ? <div className="message message--warning">{disabledMessage}</div> : null}
+
       <div className="ai-panel__controls">
         <div className="form-row">
           <label className="form-field">
@@ -589,7 +606,7 @@ export function AIEnhancementPanel({ courseId, modules }: EnhancementPanelProps)
             className="btn btn--primary"
             onClick={handleCreateJob}
             type="button"
-            disabled={createJobMutation.isPending}
+            disabled={createJobMutation.isPending || !canEnhance}
           >
             {createJobMutation.isPending ? 'Queueing...' : 'Queue enhancement'}
           </button>
@@ -597,7 +614,7 @@ export function AIEnhancementPanel({ courseId, modules }: EnhancementPanelProps)
             className="btn btn--ghost"
             onClick={handleStreamJob}
             type="button"
-            disabled={isStreaming}
+            disabled={isStreaming || !canEnhance}
           >
             {isStreaming ? 'Streaming...' : 'Preview stream'}
           </button>

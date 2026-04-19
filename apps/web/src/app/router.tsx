@@ -1,6 +1,8 @@
-import { NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
 
-import { AdminApplicationsPage, AdminUsersPage } from '../features/admin/AdminPages'
+import { NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate, Link } from 'react-router-dom'
+
+import { AdminApplicationsPage, AdminUsersPage, AdminAnalyticsPage, AdminWorkflowsPage, AdminAuditLogPage, AdminDLQPage } from '../features/admin/AdminPages'
 import {
   ForgotPasswordPage,
   LoginPage,
@@ -11,6 +13,7 @@ import {
 import { CatalogPage, SearchPage } from '../features/catalog/CatalogPages'
 import { CourseEditorPage, CourseWorkspacePage } from '../features/courses/CoursePages'
 import { StudentCoursePage } from '../features/courses/StudentCoursePage'
+import { HomePage } from '../features/home/HomePage'
 import {
   CertificateDetailPage,
   CertificatesPage,
@@ -18,13 +21,17 @@ import {
   LearningEnrollmentPage,
   LearningPage,
 } from '../features/learning/LearningPages'
+import { NotificationsPage } from '../features/notifications/NotificationsPage'
 import { ProfilePage } from '../features/profile/ProfilePage'
+import { SettingsPage } from '../features/settings/SettingsPage'
 import {
   clearSession,
   defaultRouteForSession,
   type SessionState,
   useSessionState,
 } from '../lib/session'
+
+/* ── Route guards ─────────────────────────────────────────────── */
 
 function ProtectedRoute() {
   const session = useSessionState()
@@ -60,6 +67,56 @@ function RoleRoute({ roles }: { roles: string[] }) {
 
   return <Outlet />
 }
+
+/* ── Public layout — transparent nav over dark background ──────── */
+
+function PublicNav() {
+  const session = useSessionState()
+  const [scrolled, setScrolled] = useState(false)
+
+  const handleScroll = useCallback(() => {
+    setScrolled(window.scrollY > 20)
+  }, [])
+
+  useEffect(() => {
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [handleScroll])
+
+  return (
+    <nav className={`public-nav${scrolled ? ' public-nav--scrolled' : ''}`}>
+      <div className="public-nav__brand">
+        <Link to="/">EduCorp</Link>
+      </div>
+      <div className="public-nav__spacer" />
+      <div className="public-nav__links">
+        <Link className="public-nav__link" to="/catalog">Catalog</Link>
+        <Link className="public-nav__link" to="/search">Search</Link>
+        {session ? (
+          <Link className="btn btn--primary btn--sm" to={defaultRouteForSession(session)}>
+            Dashboard
+          </Link>
+        ) : (
+          <>
+            <Link className="public-nav__link" to="/login">Sign in</Link>
+            <Link className="btn btn--primary btn--sm" to="/register">Get started</Link>
+          </>
+        )}
+      </div>
+    </nav>
+  )
+}
+
+function PublicLayout() {
+  return (
+    <div className="public-layout">
+      <PublicNav />
+      <Outlet />
+    </div>
+  )
+}
+
+/* ── App shell header — dark nav with role-aware links ─────────── */
 
 function AppShellHeader({ session }: { session: SessionState }) {
   const navigate = useNavigate()
@@ -111,6 +168,9 @@ function AppShellHeader({ session }: { session: SessionState }) {
             <NavLink className="app-header__link" to="/app/admin/instructor-applications">
               Applications
             </NavLink>
+            <NavLink className="app-header__link" to="/app/admin/analytics">
+              Analytics
+            </NavLink>
           </>
         ) : null}
       </nav>
@@ -118,6 +178,12 @@ function AppShellHeader({ session }: { session: SessionState }) {
       <div className="app-header__spacer" />
 
       <div className="app-header__meta">
+        <NavLink className="app-header__link" to="/app/notifications" title="Notifications">
+          &#128276;
+        </NavLink>
+        <NavLink className="app-header__link" to="/app/settings" title="Settings">
+          &#9881;
+        </NavLink>
         <div className="app-header__roles">
           {session.user.roles.map((role) => (
             <span className="badge" key={role}>
@@ -160,14 +226,23 @@ function AppShell() {
 
 function NotFoundRedirect() {
   const session = useSessionState()
-  return <Navigate to={session ? defaultRouteForSession(session) : '/login'} replace />
+  return <Navigate to={session ? defaultRouteForSession(session) : '/'} replace />
 }
+
+/* ── Route tree ────────────────────────────────────────────────── */
 
 export function AppRoutes() {
   return (
     <Routes>
+      {/* Public pages with transparent nav */}
+      <Route element={<PublicLayout />}>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/catalog" element={<CatalogPage />} />
+        <Route path="/search" element={<SearchPage />} />
+      </Route>
+
+      {/* Auth pages (no nav, centered cards) */}
       <Route element={<PublicOnlyRoute />}>
-        <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
@@ -175,29 +250,41 @@ export function AppRoutes() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
       </Route>
 
-        <Route element={<ProtectedRoute />}>
-          <Route path="/app" element={<AppShell />}>
-            <Route index element={<NotFoundRedirect />} />
-            <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="learning" element={<LearningPage />} />
-            <Route path="learning/:enrollmentId" element={<LearningEnrollmentPage />} />
-            <Route path="certificates" element={<CertificatesPage />} />
-            <Route path="profile" element={<ProfilePage />} />
-            <Route path="catalog" element={<CatalogPage />} />
-            <Route path="catalog/:courseId" element={<StudentCoursePage />} />
-            <Route path="search" element={<SearchPage />} />
+      {/* Authenticated app */}
+      <Route element={<ProtectedRoute />}>
+        <Route path="/app" element={<AppShell />}>
+          <Route index element={<NotFoundRedirect />} />
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="learning" element={<LearningPage />} />
+          <Route path="learning/:enrollmentId" element={<LearningEnrollmentPage />} />
+          <Route path="certificates" element={<CertificatesPage />} />
+          <Route path="profile" element={<ProfilePage />} />
+          <Route path="catalog" element={<CatalogPage />} />
+          <Route path="catalog/:courseId" element={<StudentCoursePage />} />
+          <Route path="search" element={<SearchPage />} />
+          <Route path="notifications" element={<NotificationsPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+
           <Route element={<RoleRoute roles={['instructor', 'admin']} />}>
             <Route path="courses" element={<CourseWorkspacePage />} />
             <Route path="courses/:courseId" element={<CourseEditorPage />} />
           </Route>
+
           <Route element={<RoleRoute roles={['admin']} />}>
             <Route path="admin/users" element={<AdminUsersPage />} />
             <Route path="admin/instructor-applications" element={<AdminApplicationsPage />} />
+            <Route path="admin/analytics" element={<AdminAnalyticsPage />} />
+            <Route path="admin/workflows" element={<AdminWorkflowsPage />} />
+            <Route path="admin/audit-log" element={<AdminAuditLogPage />} />
+            <Route path="admin/dlq" element={<AdminDLQPage />} />
           </Route>
         </Route>
       </Route>
 
-      <Route path="/certificates/:certificateId" element={<CertificateDetailPage />} />
+      {/* Public certificate detail (shareable link) */}
+      <Route element={<PublicLayout />}>
+        <Route path="/certificates/:certificateId" element={<CertificateDetailPage />} />
+      </Route>
 
       <Route path="*" element={<NotFoundRedirect />} />
     </Routes>

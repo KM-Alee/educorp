@@ -24,7 +24,14 @@ class QdrantRetriever:
         version_id: UUID,
         question: str,
         module_id: UUID | None,
+        score_threshold: float | None = None,
     ) -> tuple[list[dict], list[float]]:
+        """Retrieve chunks from Qdrant.
+
+        ``score_threshold`` overrides the default ``settings.relevance_threshold``.
+        Pass ``0.0`` to fetch all content regardless of similarity (e.g. for
+        instructor-tool jobs that need the full course context).
+        """
         vector = await self._embedding.embed_query(question)
 
         must = [
@@ -45,13 +52,14 @@ class QdrantRetriever:
                 )
             )
 
+        threshold = score_threshold if score_threshold is not None else settings.relevance_threshold
         results = self._qdrant.query_points(
             collection_name=self._collection,
             query=vector,
             limit=settings.retrieval_top_k,
             query_filter=qmodels.Filter(must=must),
             with_payload=True,
-            score_threshold=settings.relevance_threshold,
+            score_threshold=threshold,
         ).points
 
         chunks: list[dict] = []

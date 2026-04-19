@@ -5,7 +5,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = "0002_enrollment_idempotency_scope"
+revision = "0002_enrollment_idempotency"
 down_revision = "0001_enrollment_phase4"
 branch_labels = None
 depends_on = None

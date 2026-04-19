@@ -1010,8 +1010,26 @@ export function CourseEditorPage() {
       </div>
 
       <div className="page-stack">
-        <AIAssistantPanel courseId={courseId} modules={modules} />
-        <AIEnhancementPanel courseId={courseId} modules={modules} />
+        <AIAssistantPanel
+          courseId={courseId}
+          modules={modules}
+          canAsk={courseQuery.data?.visibility === 'PUBLISHED'}
+          disabledMessage={
+            courseQuery.data?.visibility !== 'PUBLISHED'
+              ? 'Publish and activate this course to use the AI assistant.'
+              : undefined
+          }
+        />
+        <AIEnhancementPanel
+          courseId={courseId}
+          modules={modules}
+          canEnhance={courseQuery.data?.visibility === 'PUBLISHED'}
+          disabledMessage={
+            courseQuery.data?.visibility !== 'PUBLISHED'
+              ? 'Publish and activate this course to use instructor enhancements.'
+              : undefined
+          }
+        />
       </div>
 
       {/* Modules */}

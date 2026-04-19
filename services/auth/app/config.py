@@ -18,5 +18,7 @@ class Settings(BaseAppSettings):
     password_reset_ttl_minutes: int = 60
     instructor_auto_approve: bool = False
 
+    internal_service_token: str = "change-me"
+
 
 settings = Settings()

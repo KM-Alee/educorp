@@ -602,17 +602,17 @@ async function requestEventStream(
     }
 
     buffer += decoder.decode(value, { stream: true })
-    let separatorIndex = buffer.indexOf('\n\n')
+    let separator = findEventStreamSeparator(buffer)
 
-    while (separatorIndex >= 0) {
-      const rawEvent = buffer.slice(0, separatorIndex).trim()
-      buffer = buffer.slice(separatorIndex + 2)
+    while (separator) {
+      const rawEvent = buffer.slice(0, separator.index).trim()
+      buffer = buffer.slice(separator.index + separator.length)
 
       if (rawEvent) {
         options.onEvent(parseEventStreamMessage(rawEvent))
       }
 
-      separatorIndex = buffer.indexOf('\n\n')
+      separator = findEventStreamSeparator(buffer)
     }
   }
 
@@ -638,20 +638,30 @@ async function toApiError(response: Response): Promise<ApiError> {
 }
 
 function parseEventStreamMessage(rawEvent: string): EventStreamMessage {
-  const lines = rawEvent.split('\n')
+  const lines = rawEvent.split(/\r?\n/)
   let event = 'message'
   let data = ''
 
   for (const line of lines) {
     if (line.startsWith('event:')) {
-      event = line.replace('event:', '').trim()
+      event = line.slice('event:'.length).trim()
     }
     if (line.startsWith('data:')) {
-      data += line.replace('data:', '').trim()
+      const value = line.slice('data:'.length).replace(/^ /, '')
+      data = data ? `${data}\n${value}` : value
     }
   }
 
   return { event, data: data || null }
+}
+
+function findEventStreamSeparator(buffer: string): { index: number; length: number } | null {
+  const match = /\r?\n\r?\n/.exec(buffer)
+  if (!match || typeof match.index !== 'number') {
+    return null
+  }
+
+  return { index: match.index, length: match[0].length }
 }
 
 export async function registerUser(input: RegisterInput): Promise<UserCreated> {

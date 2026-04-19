@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { getProfile, registerUser, uploadAsset } from './api'
+import { getProfile, registerUser, streamAIAssistant, uploadAsset } from './api'
 import { clearSession, getSession, setSession } from './session'
 import { ApiError } from './types'
 
@@ -32,6 +32,22 @@ function error(status: number, message: string): Response {
     {
       status,
       headers: { 'Content-Type': 'application/json' },
+    },
+  )
+}
+
+function eventStream(...chunks: string[]): Response {
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder()
+        chunks.forEach((chunk) => controller.enqueue(encoder.encode(chunk)))
+        controller.close()
+      },
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
     },
   )
 }
@@ -148,5 +164,50 @@ describe('api client', () => {
     expect(headers.has('Content-Type')).toBe(false)
     expect(headers.get('Authorization')).toBe('Bearer access-token')
     expect(init?.body).toBeInstanceOf(FormData)
+  })
+
+  it('parses CRLF-delimited SSE events for assistant streaming', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      eventStream(
+        'event: token\r\ndata: {"text":"Hello"}\r\n\r\n',
+        'event: done\r\ndata: {"query_id":"query-1"}\r\n\r\n',
+      ),
+    )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    setSession({
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      tokenType: 'bearer',
+      expiresIn: 900,
+      user: {
+        id: 'user-id',
+        email: 'student@example.com',
+        roles: ['student'],
+      },
+    })
+
+    const seenEvents: Array<{ event: string; data: string | null }> = []
+
+    await streamAIAssistant({
+      course_id: 'course-id',
+      question: 'hello',
+      signal: new AbortController().signal,
+      onEvent: (event) => seenEvents.push(event),
+    })
+
+    expect(seenEvents).toEqual([
+      { event: 'token', data: '{"text":"Hello"}' },
+      { event: 'done', data: '{"query_id":"query-1"}' },
+    ])
+
+    const [path, init] = fetchMock.mock.calls[0]
+    expect(path).toContain('/api/v1/ai/ask/stream?')
+    expect(path).toContain('question=hello')
+
+    const headers = new Headers(init?.headers)
+    expect(headers.get('Accept')).toBe('text/event-stream')
+    expect(headers.get('Authorization')).toBe('Bearer access-token')
   })
 })

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import io
+import logging
 from datetime import datetime, timezone
 from uuid import UUID, uuid5
+
+logger = logging.getLogger(__name__)
 
 import pdfplumber
 from miniopy_async import Minio
@@ -247,7 +250,12 @@ class PublishingActivities:
                         [r.to_dict() for r in records],
                     )
 
-                    for key in ("total_pages", "ocr_pages", "nanogpt_pages", "low_confidence_pages"):
+                    for key in (
+                        "total_pages",
+                        "ocr_pages",
+                        "nanogpt_pages",
+                        "low_confidence_pages",
+                    ):
                         agg_stats[key] = agg_stats[key] + asset_stats.get(key, 0)
 
                     all_canonical_pages.extend(r.to_dict() for r in records)
@@ -286,9 +294,7 @@ class PublishingActivities:
                     metadata=agg_stats,
                 )
 
-                await _mark_step(
-                    session, version_id, STEP_EXTRACT, "COMPLETED", metadata=agg_stats
-                )
+                await _mark_step(session, version_id, STEP_EXTRACT, "COMPLETED", metadata=agg_stats)
                 await session.commit()
                 return artifact.id
             except Exception as exc:
@@ -367,7 +373,10 @@ class PublishingActivities:
                 )
 
                 await _mark_step(
-                    session, payload.version_id, STEP_CHUNK, "COMPLETED",
+                    session,
+                    payload.version_id,
+                    STEP_CHUNK,
+                    "COMPLETED",
                     metadata={
                         "total_chunks": chunk_stats.total_chunks,
                         "duplicate_chunks_removed": chunk_stats.duplicate_chunks_removed,
@@ -431,7 +440,10 @@ class PublishingActivities:
                 )
 
                 await _mark_step(
-                    session, payload.version_id, STEP_EMBED, "COMPLETED",
+                    session,
+                    payload.version_id,
+                    STEP_EMBED,
+                    "COMPLETED",
                     metadata={
                         "total_embeddings": len(embedding_records),
                         "embeddings_reused": reused,
@@ -455,9 +467,7 @@ class PublishingActivities:
             try:
                 artifact_repo = VersionArtifactRepository(session)
                 chunks_artifact = await artifact_repo.get_by_id(payload.chunks_artifact_id)
-                embeddings_artifact = await artifact_repo.get_by_id(
-                    payload.embeddings_artifact_id
-                )
+                embeddings_artifact = await artifact_repo.get_by_id(payload.embeddings_artifact_id)
                 if chunks_artifact is None or embeddings_artifact is None:
                     raise NotFoundError("Publishing artifacts not found")
 
@@ -484,7 +494,10 @@ class PublishingActivities:
                 qdrant.upsert_version_safe(str(payload.version_id), points)
 
                 await _mark_step(
-                    session, payload.version_id, STEP_INDEX, "COMPLETED",
+                    session,
+                    payload.version_id,
+                    STEP_INDEX,
+                    "COMPLETED",
                     metadata={"total_points": len(points)},
                 )
                 await session.commit()
@@ -544,7 +557,10 @@ class PublishingActivities:
                 )
 
                 await _mark_step(
-                    session, payload.version_id, STEP_QUALITY, "COMPLETED",
+                    session,
+                    payload.version_id,
+                    STEP_QUALITY,
+                    "COMPLETED",
                     metadata={"quality_report_artifact_id": str(artifact.id)},
                 )
                 await session.commit()
@@ -558,6 +574,11 @@ class PublishingActivities:
 
     @activity.defn(name=STEP_FINALIZE)
     async def finalize_version(self, version_id: UUID) -> None:
+        # Track activated course_id so we can notify search AFTER the session
+        # commits successfully.  The search notification is non-critical — a
+        # transient failure there must NOT mark the version as failed.
+        activated_course_id: UUID | None = None
+
         async with self._session_factory() as session:
             await _mark_step(session, version_id, STEP_FINALIZE, "RUNNING")
             try:
@@ -582,10 +603,7 @@ class PublishingActivities:
                 activated_version, _superseded_id = await activation_service.activate_version(
                     version_id=version.id,
                 )
-
-                await activation_client.notify_search_activated(
-                    course_id=activated_version.course_id,
-                )
+                activated_course_id = activated_version.course_id
 
                 await _mark_step(session, version_id, STEP_FINALIZE, "COMPLETED")
                 await session.commit()
@@ -599,6 +617,20 @@ class PublishingActivities:
                 )
                 await session.commit()
                 raise
+
+        # Non-critical: notify the search service so it can refresh its index.
+        # This runs OUTSIDE the DB session and does not affect the pipeline
+        # outcome — a search-service glitch must not roll back an already-live course.
+        if activated_course_id is not None:
+            try:
+                await CourseActivationClient().notify_search_activated(
+                    course_id=activated_course_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Search activation notify failed (non-critical); search index may be stale: %s",
+                    exc,
+                )
 
     @activity.defn(name="mark_version_rejected")
     async def mark_version_rejected(self, version_id: UUID) -> None:

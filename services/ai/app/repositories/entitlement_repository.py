@@ -13,6 +13,11 @@ class EntitlementRepository:
         self._session = session
 
     async def get_ready_course_version(self, course_id: UUID) -> tuple[UUID | None, str | None]:
+        # Gate on visibility + activated_at only.  We intentionally omit
+        # v.status = 'READY' because mark_version_failed can overwrite that
+        # field even after activation succeeds (e.g. when notify_search_activated
+        # fails after the course was already made live).  The canonical "is this
+        # version live?" signal is activated_at IS NOT NULL.
         query = text(
             """
             SELECT c.current_version_id, c.title
@@ -20,7 +25,6 @@ class EntitlementRepository:
               JOIN publishing.course_versions v ON v.id = c.current_version_id
              WHERE c.id = :course_id
                AND c.visibility = 'PUBLISHED'
-               AND v.status = 'READY'
                AND v.activated_at IS NOT NULL
             """
         )

@@ -198,14 +198,18 @@ class InstructorService:
         )
 
         try:
+            # Use score_threshold=0.0 so ALL indexed content is fetched regardless
+            # of similarity — instructor tools need the full course context, not
+            # just high-similarity chunks.
             chunks, _ = await self._retriever.retrieve(
                 course_id=course_id,
                 version_id=version_id,
                 question=_stream_query_hint(job_type, parameters, module_id),
                 module_id=module_id if scope == "module" else None,
+                score_threshold=0.0,
             )
             await self._ensure_not_cancelled(job_id)
-            context = _build_context(chunks)
+            context = _require_retrieved_context(chunks, scope)
             if estimate_tokens(context) > settings.max_input_tokens:
                 context = truncate_to_token_limit(context, settings.max_input_tokens)
 
@@ -300,14 +304,18 @@ class InstructorService:
                 {"status": "RUNNING", "started_at": datetime.now(timezone.utc)},
             )
 
+            # Use score_threshold=0.0 so ALL indexed content is fetched regardless
+            # of similarity — instructor tools need the full course context, not
+            # just high-similarity chunks.
             chunks, _ = await self._retriever.retrieve(
                 course_id=course_id,
                 version_id=version_id,
                 question=_stream_query_hint(job_type, parameters, module_id),
                 module_id=module_id if scope == "module" else None,
+                score_threshold=0.0,
             )
             await self._ensure_not_cancelled(job_id)
-            context = _build_context(chunks)
+            context = _require_retrieved_context(chunks, scope)
             if estimate_tokens(context) > settings.max_input_tokens:
                 context = truncate_to_token_limit(context, settings.max_input_tokens)
 
@@ -444,6 +452,23 @@ def _build_context(chunks: list[dict]) -> str:
             f"{chunk.get('text', '')}"
         )
     return "\n\n".join(lines)
+
+
+def _require_retrieved_context(chunks: list[dict], scope: str) -> str:
+    context = _build_context(chunks)
+    if chunks and context.strip():
+        return context
+
+    scope_label = "selected module" if scope == "module" else "course"
+    raise EduCorpError(
+        code="NO_SOURCE_CONTENT",
+        message=(
+            f"No indexed content was found for this {scope_label}. "
+            "The course content may still be indexing — wait a moment and try again. "
+            "If the problem persists, re-publish the course to rebuild the search index."
+        ),
+        status_code=409,
+    )
 
 
 def _stream_query_hint(job_type: str, parameters: dict[str, Any], module_id: UUID | None) -> str:

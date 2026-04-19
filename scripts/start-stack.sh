@@ -148,6 +148,8 @@ done
 
 # ── Phase 6: Seed + health ──────────────────────────────
 info "Phase 6/6: Seeding data..."
+docker compose exec -T auth-service python -m scripts.seed >/dev/null
+ok "Auth admin seed complete"
 uv run python scripts/seed_data.py
 ok "Seed data loaded"
 
