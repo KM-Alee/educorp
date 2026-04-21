@@ -28,11 +28,11 @@ x-python-service: &python-service
 
 x-dev-worker: &dev-worker
   <<: *python-service
-  command: ["watchfiles", "--filter", "python", "python", "-m", "app.worker", "/app/service", "/app/shared"]
+  command: ["python", "-m", "app.worker"]
 
 x-dev-celery-worker: &dev-celery-worker
   <<: *python-service
-  command: ["watchfiles", "--filter", "python", "celery", "-A", "app.celery_app", "worker", "--loglevel=info", "/app/service", "/app/shared"]
+  command: ["celery", "-A", "app.celery_app", "worker", "--loglevel=info"]
 
 x-resource-small: &resource-small
   deploy:

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -176,15 +177,53 @@ def main(gateway: str) -> None:
             created_users[u["email"]] = user_id
             print(f"  Created: {u['email']}")
         elif status == 409 or (status == 400 and "already" in str(payload)):
-            # Get user id by logging in
+            # Get user id by logging in — may fail if not yet activated; fall back to admin list
             tok = login(gateway, u["email"], u["password"])
             if tok:
                 s2, p2 = _request("GET", f"{gateway}/api/v1/auth/me", token=tok)
                 if s2 == 200:
                     created_users[u["email"]] = p2["data"]["id"]
+            if u["email"] not in created_users:
+                # User exists but not yet active — fetch id via admin list
+                s_list, p_list = _request(
+                    "GET",
+                    f"{gateway}/api/v1/auth/admin/users?search={u['email']}&page_size=5",
+                    token=admin_token,
+                )
+                if s_list == 200:
+                    for item in p_list.get("data", {}).get("items", []):
+                        if item.get("email") == u["email"]:
+                            created_users[u["email"]] = item["id"]
+                            break
             print(f"  Exists:  {u['email']}")
         else:
             print(f"  WARN: could not create {u['email']}: {status} {payload}")
+
+        # Activate and verify the account in dev mode (skip email flow)
+        if u["email"] in created_users:
+            uid = created_users[u["email"]]
+            # Set is_active via admin API
+            _request(
+                "PATCH",
+                f"{gateway}/api/v1/auth/admin/users/{uid}/status",
+                {"is_active": True},
+                token=admin_token,
+            )
+            # Set is_verified directly in DB (no admin API for this)
+            try:
+                subprocess.run(
+                    [
+                        "docker", "exec", "educorp-postgres-1",
+                        "psql", "-U", "educorp", "-d", "educorp",
+                        "-c", f"UPDATE auth.users SET is_verified = true WHERE id = '{uid}';",
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+                print(f"    Activated & verified: {u['email']}")
+            except Exception as exc:
+                print(f"    WARN: could not verify via DB ({exc}) — try manual: "
+                      f"UPDATE auth.users SET is_verified=true WHERE email='{u['email']}';")
 
         # Grant instructor role if needed
         if u.get("promote_to_instructor") and u["email"] in created_users:

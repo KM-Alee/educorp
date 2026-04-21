@@ -306,7 +306,7 @@ export function AIAssistantPanel({
           </button>
           <button
             className="btn btn--ghost"
-            onClick={handleAskNonStreaming}
+            onClick={() => handleAskNonStreaming()}
             type="button"
             disabled={!canAsk}
           >

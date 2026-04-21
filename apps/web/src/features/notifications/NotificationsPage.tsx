@@ -16,7 +16,6 @@ export function NotificationsPage() {
           notifications will appear here.
         </p>
         <div className="placeholder-page__badge">
-          <span className="badge badge--warning">Phase 6</span>
         </div>
       </div>
     </div>

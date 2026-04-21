@@ -1238,6 +1238,33 @@ export async function getEnrollmentStatus(courseId: string): Promise<EnrollmentS
   return response.data
 }
 
+/* Instructor: view enrollments for their own course */
+export async function listCourseEnrollments(
+  courseId: string,
+  filters: { status?: string; page?: number; page_size?: number } = {},
+): Promise<PaginatedResponse<EnrollmentRecord>> {
+  const params = new URLSearchParams()
+  params.set('page', String(filters.page ?? 1))
+  params.set('page_size', String(filters.page_size ?? 50))
+  if (filters.status) params.set('status', filters.status)
+  return requestPaginated<EnrollmentRecord>(
+    `${ENROLLMENT_BASE}/courses/${courseId}/enrollments?${params.toString()}`,
+  )
+}
+
+/* Admin: list all enrollments across all courses */
+export async function listAllEnrollments(filters: {
+  status?: string
+  page?: number
+  page_size?: number
+}): Promise<PaginatedResponse<EnrollmentRecord>> {
+  const params = new URLSearchParams()
+  params.set('page', String(filters.page ?? 1))
+  params.set('page_size', String(filters.page_size ?? 50))
+  if (filters.status) params.set('status', filters.status)
+  return requestPaginated<EnrollmentRecord>(`${ENROLLMENT_BASE}/admin/all?${params.toString()}`)
+}
+
 export async function getEnrollmentProgress(enrollmentId: string): Promise<EnrollmentProgress> {
   const response = await requestEnvelope<EnrollmentProgress>(
     `${PROGRESS_BASE}/enrollments/${enrollmentId}`,

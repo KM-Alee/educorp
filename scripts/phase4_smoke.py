@@ -8,6 +8,7 @@ import urllib.request
 
 
 BASE_URL = "http://localhost"
+SEARCH_QUERY = "javascript"
 STUDENT_EMAIL = "student@educorp.dev"
 STUDENT_PASSWORD = "StudentPass123!"
 
@@ -43,7 +44,11 @@ def login() -> str:
 def main() -> None:
     token = login()
 
-    status, search = request("GET", "/api/v1/search/courses?q=python", token=token)
+    status, search = request(
+        "GET",
+        f"/api/v1/search/courses?q={SEARCH_QUERY}",
+        token=token,
+    )
     if status != 200 or not search.get("data"):
         raise RuntimeError(f"no searchable courses available: {status} {search}")
     course_id = search["data"][0]["course_id"]

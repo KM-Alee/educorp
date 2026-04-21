@@ -94,6 +94,82 @@ async def list_enrollments(
 
 
 @router.get(
+    "/admin/all",
+    response_model=PaginatedResponse[EnrollmentOut],
+)
+async def list_all_enrollments(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    status_filter: str | None = Query(default=None, alias="status"),
+    course_id: UUID | None = Query(default=None),
+    current_user: CurrentUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+) -> PaginatedResponse[EnrollmentOut]:
+    """Admin endpoint to list all enrollments across all students and courses."""
+    from app.repositories.enrollment_repository import EnrollmentRepository
+
+    repo = EnrollmentRepository(session)
+    enrollments, total = await repo.list_all(
+        course_id=course_id,
+        status=status_filter,
+        page=page,
+        page_size=page_size,
+    )
+    total_pages = (total + page_size - 1) // page_size if total else 0
+    return PaginatedResponse(
+        data=[EnrollmentOut.model_validate(item) for item in enrollments],
+        meta=_meta(),
+        pagination=Pagination(
+            page=page,
+            page_size=page_size,
+            total_items=total,
+            total_pages=total_pages,
+            has_next=page < total_pages,
+            has_prev=page > 1,
+        ),
+    )
+
+
+@router.get(
+    "/courses/{course_id}/enrollments",
+    response_model=PaginatedResponse[EnrollmentOut],
+)
+async def list_course_enrollments(
+    course_id: UUID,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    status_filter: str | None = Query(default=None, alias="status"),
+    current_user: CurrentUser = Depends(require_roles("instructor", "admin")),
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+) -> PaginatedResponse[EnrollmentOut]:
+    """Instructor/admin endpoint to list all enrollments for a specific course."""
+    from app.repositories.enrollment_repository import EnrollmentRepository
+
+    repo = EnrollmentRepository(session)
+    enrollments, total = await repo.list_by_course(
+        course_id=course_id,
+        status=status_filter,
+        page=page,
+        page_size=page_size,
+    )
+    total_pages = (total + page_size - 1) // page_size if total else 0
+    return PaginatedResponse(
+        data=[EnrollmentOut.model_validate(item) for item in enrollments],
+        meta=_meta(),
+        pagination=Pagination(
+            page=page,
+            page_size=page_size,
+            total_items=total,
+            total_pages=total_pages,
+            has_next=page < total_pages,
+            has_prev=page > 1,
+        ),
+    )
+
+
+@router.get(
     "/{enrollment_id}",
     response_model=SuccessResponse[EnrollmentOut],
 )

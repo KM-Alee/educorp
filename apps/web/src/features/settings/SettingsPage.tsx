@@ -48,7 +48,7 @@ export function SettingsPage() {
           <div className="meta-list">
             <div className="meta-item">
               <div className="meta-item__label">Theme</div>
-              <div className="meta-item__value">Dark (default)</div>
+              <div className="meta-item__value">Cream (default)</div>
             </div>
             <div className="meta-item">
               <div className="meta-item__label">Language</div>

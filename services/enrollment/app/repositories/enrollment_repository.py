@@ -86,3 +86,55 @@ class EnrollmentRepository:
             )
         )
         return list(result.scalars().all())
+
+    async def list_by_course(
+        self,
+        *,
+        course_id: UUID,
+        status: str | None,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[Enrollment], int]:
+        """Return enrollments for a given course (for instructor/admin view)."""
+        query = select(Enrollment).where(Enrollment.course_id == course_id)
+        if status:
+            query = query.where(Enrollment.status == status)
+
+        count_sub = query.subquery()
+        total_result = await self._session.execute(
+            select(func.count()).select_from(count_sub)
+        )
+        total = int(total_result.scalar_one())
+
+        query = query.order_by(Enrollment.enrolled_at.desc()).offset(
+            (page - 1) * page_size
+        ).limit(page_size)
+        result = await self._session.execute(query)
+        return list(result.scalars().all()), total
+
+    async def list_all(
+        self,
+        *,
+        course_id: UUID | None,
+        status: str | None,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[Enrollment], int]:
+        """Return all enrollments across all students and courses (admin only)."""
+        query = select(Enrollment)
+        if course_id:
+            query = query.where(Enrollment.course_id == course_id)
+        if status:
+            query = query.where(Enrollment.status == status)
+
+        count_sub = query.subquery()
+        total_result = await self._session.execute(
+            select(func.count()).select_from(count_sub)
+        )
+        total = int(total_result.scalar_one())
+
+        query = query.order_by(Enrollment.enrolled_at.desc()).offset(
+            (page - 1) * page_size
+        ).limit(page_size)
+        result = await self._session.execute(query)
+        return list(result.scalars().all()), total

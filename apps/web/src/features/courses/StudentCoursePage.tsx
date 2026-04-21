@@ -1,11 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
+import {
+  BookOpen,
+  ChevronDown,
+  Download,
+  FileText,
+} from 'lucide-react'
 
 import {
   enrollInCourse,
+  getAssetDownload,
   getCourse,
   getEnrollmentStatus,
+  listAssets,
   listModules,
+  type AssetOut,
   type ModuleDetail,
 } from '../../lib/api'
 import { useSessionState } from '../../lib/session'
@@ -18,6 +27,46 @@ function statusBadgeClass(status: string): string {
   if (normalized === 'CANCELLED') return 'badge badge--danger'
   if (normalized === 'ENROLLED' || normalized === 'IN_PROGRESS') return 'badge badge--accent'
   return 'badge badge--warning'
+}
+
+/* Inline component: shows downloadable assets for a module */
+function ModuleAssetList({ courseId, moduleId }: { courseId: string; moduleId: string }) {
+  const assetsQuery = useQuery({
+    queryKey: ['assets', courseId, moduleId],
+    queryFn: () => listAssets(courseId, moduleId),
+  })
+
+  const handleDownload = async (asset: AssetOut) => {
+    try {
+      const dl = await getAssetDownload(courseId, moduleId, asset.id)
+      window.open(dl.download_url, '_blank')
+    } catch {
+      alert('Download failed. Please try again.')
+    }
+  }
+
+  if (assetsQuery.isLoading) return <div className="module-item__assets-loading">Loading materials…</div>
+
+  const assets: AssetOut[] = assetsQuery.data ?? []
+  if (!assets.length) return <div className="module-item__assets-empty">No study materials uploaded yet.</div>
+
+  return (
+    <div className="module-item__assets">
+      {assets.map((asset) => (
+        <button
+          key={asset.id}
+          className="module-asset-btn"
+          onClick={() => handleDownload(asset)}
+          type="button"
+        >
+          <FileText size={16} />
+          <span className="module-asset-btn__name">{asset.title || asset.file_name}</span>
+          <span className="module-asset-btn__file">{asset.file_name}</span>
+          <Download size={14} />
+        </button>
+      ))}
+    </div>
+  )
 }
 
 export function StudentCoursePage() {
@@ -229,19 +278,31 @@ export function StudentCoursePage() {
       {modules.length > 0 ? (
         <div className="card">
           <div className="card__header">
-            <h2 className="card__title">Published modules</h2>
+            <h2 className="card__title">
+              <BookOpen size={18} style={{ marginRight: 6, verticalAlign: -3 }} />
+              Course modules
+            </h2>
             <p className="card__description">
-              Required modules become tracked items once the learner enters an enrollment workspace.
+              Expand a module to see study materials. Download PDFs, slides, and documents to learn.
             </p>
           </div>
           <div className="module-list">
-            {modules.map((module) => (
-              <div key={module.id} className="module-item">
-                <div className="module-item__title">{module.title}</div>
-                <div className="module-item__description">
-                  {module.description || 'No description'}
+            {modules.map((module, index) => (
+              <details key={module.id} className="module-item module-item--expandable">
+                <summary className="module-item__summary">
+                  <span className="module-item__badge">{index + 1}</span>
+                  <div className="module-item__info">
+                    <div className="module-item__title">{module.title}</div>
+                    {module.description && (
+                      <div className="module-item__description">{module.description}</div>
+                    )}
+                  </div>
+                  <ChevronDown size={16} className="module-item__chevron" />
+                </summary>
+                <div className="module-item__content">
+                  <ModuleAssetList courseId={courseId} moduleId={module.id} />
                 </div>
-              </div>
+              </details>
             ))}
           </div>
         </div>

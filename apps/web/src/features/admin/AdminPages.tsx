@@ -1,6 +1,20 @@
 import { useState } from 'react'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
+import {
+  Users,
+  ClipboardList,
+  BarChart3,
+  Zap,
+  ScrollText,
+  Wrench,
+  ShieldAlert,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  BookOpen,
+} from 'lucide-react'
 
 import {
   getAdminWorkflow,
@@ -10,6 +24,7 @@ import {
   listAdminDlq,
   listAdminWorkflows,
   listInstructorApplications,
+  listAllEnrollments,
   replayAdminDlqMessage,
   reviewInstructorApplication,
   retryAdminWorkflow,
@@ -398,9 +413,9 @@ export function AdminWorkflowsPage() {
   return (
     <div className="page-stack">
       <div className="page-header">
-        <h1 className="page-header__title">Workflow operations</h1>
+        <h1 className="page-header__title">Publishing queue</h1>
         <p className="page-header__description">
-          Monitor Temporal publishing workflows, retry failed runs, and inspect execution history.
+          Monitor course publishing jobs, retry failures, and review submission history.
         </p>
       </div>
 
@@ -518,9 +533,9 @@ export function AdminAuditLogPage() {
   return (
     <div className="page-stack">
       <div className="page-header">
-        <h1 className="page-header__title">Audit log</h1>
+        <h1 className="page-header__title">Activity log</h1>
         <p className="page-header__description">
-          Immutable record of administrative actions, role changes, and security events.
+          A record of admin actions, role changes, and account updates.
         </p>
       </div>
 
@@ -602,9 +617,9 @@ export function AdminDLQPage() {
   return (
     <div className="page-stack">
       <div className="page-header">
-        <h1 className="page-header__title">Dead letter queue</h1>
+        <h1 className="page-header__title">Failed messages</h1>
         <p className="page-header__description">
-          Inspect and replay failed Kafka messages that exceeded retry limits.
+          Review and retry messages that could not be delivered.
         </p>
       </div>
 
@@ -672,6 +687,209 @@ export function AdminDLQPage() {
 
         {!dlqQuery.isLoading && !dlqQuery.data?.data.length ? (
           <div className="empty">No dead-letter messages right now.</div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+/* ─── Admin Dashboard ─────────────────────────────────────────────────── */
+export function AdminDashboardPage() {
+  const today = new Date().toISOString().slice(0, 10)
+  const analyticsQuery = useQuery({
+    queryKey: ['admin-platform-analytics', today, today],
+    queryFn: () => getPlatformAnalytics({ from_date: today, to_date: today }),
+  })
+  const applicationsQuery = useQuery({
+    queryKey: ['instructor-applications', 'PENDING'],
+    queryFn: () => listInstructorApplications('PENDING'),
+  })
+  const enrollmentsQuery = useQuery({
+    queryKey: ['admin-enrollments', 'PENDING'],
+    queryFn: () => listAllEnrollments({ status: 'PENDING', page_size: 5 }),
+  })
+
+  const stats = analyticsQuery.data
+  const pendingApps = applicationsQuery.data?.data.length ?? 0
+  const pendingEnrollments = enrollmentsQuery.data?.data.length ?? 0
+
+  return (
+    <div className="page-stack">
+      <div className="admin-hero">
+        <div className="admin-hero__badge">
+          <ShieldAlert size={16} />
+          Administrator
+        </div>
+        <h1 className="admin-hero__title">Platform Control Centre</h1>
+        <p className="admin-hero__sub">
+          You have full authority over users, enrollments, publishing workflows, and audit records.
+        </p>
+      </div>
+
+      {/* Authority stat strip */}
+      <div className="stat-row">
+        <div className="stat-item stat-item--dark">
+          <div className="stat-item__label">Total users</div>
+          <div className="stat-item__value">{stats?.total_students ?? '--'}</div>
+        </div>
+        <div className="stat-item stat-item--dark">
+          <div className="stat-item__label">Enrollments</div>
+          <div className="stat-item__value">{stats?.enrollments ?? '--'}</div>
+        </div>
+        <div className="stat-item stat-item--dark">
+          <div className="stat-item__label">Published courses</div>
+          <div className="stat-item__value">{stats?.published_courses ?? '--'}</div>
+        </div>
+        <div className="stat-item stat-item--warning">
+          <div className="stat-item__label">Pending applications</div>
+          <div className="stat-item__value">{pendingApps}</div>
+        </div>
+        <div className="stat-item stat-item--warning">
+          <div className="stat-item__label">Pending enrollments</div>
+          <div className="stat-item__value">{pendingEnrollments}</div>
+        </div>
+      </div>
+
+      {/* Quick authority actions */}
+      <div className="admin-quick-grid">
+        <Link className="admin-quick-card" to="/app/admin/users">
+          <Users size={24} />
+          <div>
+            <p className="admin-quick-card__title">Manage users</p>
+            <p className="admin-quick-card__desc">Assign roles, activate or deactivate accounts</p>
+          </div>
+        </Link>
+        <Link className="admin-quick-card admin-quick-card--highlight" to="/app/admin/enrollments">
+          <BookOpen size={24} />
+          <div>
+            <p className="admin-quick-card__title">Enrollment approvals</p>
+            <p className="admin-quick-card__desc">Approve or reject student enrollment requests</p>
+          </div>
+          {pendingEnrollments > 0 ? (
+            <span className="admin-quick-card__badge">{pendingEnrollments}</span>
+          ) : null}
+        </Link>
+        <Link className="admin-quick-card admin-quick-card--highlight" to="/app/admin/instructor-applications">
+          <ClipboardList size={24} />
+          <div>
+            <p className="admin-quick-card__title">Instructor applications</p>
+            <p className="admin-quick-card__desc">Review and approve instructor role requests</p>
+          </div>
+          {pendingApps > 0 ? (
+            <span className="admin-quick-card__badge">{pendingApps}</span>
+          ) : null}
+        </Link>
+        <Link className="admin-quick-card" to="/app/admin/analytics">
+          <BarChart3 size={24} />
+          <div>
+            <p className="admin-quick-card__title">Platform analytics</p>
+            <p className="admin-quick-card__desc">Trends, completions, and AI usage</p>
+          </div>
+        </Link>
+        <Link className="admin-quick-card" to="/app/admin/workflows">
+          <Zap size={24} />
+          <div>
+            <p className="admin-quick-card__title">Workflow operations</p>
+            <p className="admin-quick-card__desc">Monitor and retry Temporal publishing workflows</p>
+          </div>
+        </Link>
+        <Link className="admin-quick-card" to="/app/admin/audit-log">
+          <ScrollText size={24} />
+          <div>
+            <p className="admin-quick-card__title">Audit log</p>
+            <p className="admin-quick-card__desc">Immutable record of all admin actions</p>
+          </div>
+        </Link>
+        <Link className="admin-quick-card" to="/app/admin/dlq">
+          <Wrench size={24} />
+          <div>
+            <p className="admin-quick-card__title">Dead letter queue</p>
+            <p className="admin-quick-card__desc">Inspect and replay failed Kafka messages</p>
+          </div>
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+/* ─── Admin Enrollment Approvals ─────────────────────────────────────── */
+export function AdminEnrollmentsPage() {
+  const [status, setStatus] = useState('')
+
+  const enrollmentsQuery = useQuery({
+    queryKey: ['admin-enrollments', status],
+    queryFn: () => listAllEnrollments({ status: status || undefined, page_size: 50 }),
+  })
+
+  return (
+    <div className="page-stack">
+      <div className="page-header">
+        <div className="page-header__badge"><ShieldAlert size={14} /> Admin only</div>
+        <h1 className="page-header__title">All enrollments</h1>
+        <p className="page-header__description">
+          Monitor enrollment activity across every course on the platform.
+        </p>
+      </div>
+
+      <div className="card">
+        <div className="filter-bar" style={{ marginBottom: '1rem' }}>
+          <label className="form-field">
+            <span className="form-field__label">Status</span>
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="">All statuses</option>
+              <option value="ENROLLED">Enrolled</option>
+              <option value="COMPLETED">Completed</option>
+              <option value="CANCELLED">Cancelled</option>
+            </select>
+          </label>
+        </div>
+
+        {enrollmentsQuery.isError ? (
+          <div className="message message--error" role="alert">
+            {getErrorMessage(enrollmentsQuery.error)}
+          </div>
+        ) : null}
+
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Enrollment</th>
+                <th>Course</th>
+                <th>Student</th>
+                <th>Status</th>
+                <th>Enrolled</th>
+              </tr>
+            </thead>
+            <tbody>
+              {enrollmentsQuery.data?.data.map((enrollment) => (
+                <tr key={enrollment.id}>
+                  <td className="mono">{enrollment.id.slice(0, 8)}</td>
+                  <td className="mono">{enrollment.course_id.slice(0, 8)}</td>
+                  <td className="mono">{enrollment.student_id.slice(0, 8)}</td>
+                  <td>
+                    <span className={`badge ${
+                      enrollment.status === 'ACTIVE' ? 'badge--success'
+                      : enrollment.status === 'CANCELLED' ? 'badge--danger'
+                      : 'badge--warning'
+                    }`}>
+                      {enrollment.status === 'PENDING' ? <Clock size={11} /> : null}
+                      {enrollment.status === 'ACTIVE' ? <CheckCircle2 size={11} /> : null}
+                      {enrollment.status === 'CANCELLED' ? <XCircle size={11} /> : null}
+                      {' '}{enrollment.status}
+                    </span>
+                  </td>
+                  <td>{new Date(enrollment.enrolled_at).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {!enrollmentsQuery.isLoading && !enrollmentsQuery.data?.data.length ? (
+          <div className="empty">
+            No enrollments found{status ? ` with status ${status}` : ''}.
+          </div>
         ) : null}
       </div>
     </div>

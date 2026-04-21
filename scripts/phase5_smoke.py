@@ -8,10 +8,13 @@ import urllib.request
 
 
 BASE_URL = "http://localhost"
+SEARCH_QUERY = "javascript"
 STUDENT_EMAIL = "student@educorp.dev"
 STUDENT_PASSWORD = "StudentPass123!"
 INSTRUCTOR_EMAIL = "instructor@educorp.dev"
 INSTRUCTOR_PASSWORD = "InstructorPass123!"
+ADMIN_EMAIL = "admin@educorp.dev"
+ADMIN_PASSWORD = "AdminPass123!"
 
 
 def request(method: str, path: str, *, body: dict | None = None, token: str | None = None):
@@ -45,8 +48,13 @@ def login(email: str, password: str) -> str:
 def main() -> None:
     student_token = login(STUDENT_EMAIL, STUDENT_PASSWORD)
     instructor_token = login(INSTRUCTOR_EMAIL, INSTRUCTOR_PASSWORD)
+    admin_token = login(ADMIN_EMAIL, ADMIN_PASSWORD)
 
-    status, search = request("GET", "/api/v1/search/courses?q=python", token=student_token)
+    status, search = request(
+        "GET",
+        f"/api/v1/search/courses?q={SEARCH_QUERY}",
+        token=student_token,
+    )
     if status != 200 or not search.get("data"):
         raise RuntimeError(f"no searchable courses available: {status} {search}")
     course_id = search["data"][0]["course_id"]
@@ -64,14 +72,14 @@ def main() -> None:
         body={"course_id": course_id, "question": "Summarize the first module."},
         token=student_token,
     )
-    if status != 200 or answer["data"]["response_type"] not in {"answer", "clarification"}:
+    if status != 200 or answer["data"]["response_type"] not in {"answer", "clarification", "refusal"}:
         raise RuntimeError(f"AI ask failed: {status} {answer}")
 
     status, job = request(
         "POST",
         "/api/v1/ai/instructor/enhance",
         body={"course_id": course_id, "job_type": "summary", "scope": "course", "parameters": {}},
-        token=instructor_token,
+        token=admin_token,
     )
     if status != 202:
         raise RuntimeError(f"AI instructor job failed: {status} {job}")

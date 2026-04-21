@@ -98,15 +98,15 @@ export function ProfilePage() {
       <div className="stat-row">
         <div className="stat-item">
           <div className="stat-item__label">Email</div>
-          <div className="stat-item__value">{session?.user.email ?? 'Unknown'}</div>
+          <div className="stat-item__value" style={{ fontSize: 16 }}>{session?.user.email ?? 'Unknown'}</div>
         </div>
         <div className="stat-item">
           <div className="stat-item__label">Roles</div>
-          <div className="stat-item__value">{session?.user.roles.join(', ') ?? 'None'}</div>
+          <div className="stat-item__value" style={{ fontSize: 16 }}>{session?.user.roles.join(', ') ?? 'None'}</div>
         </div>
         <div className="stat-item">
           <div className="stat-item__label">Status</div>
-          <div className="stat-item__value">
+          <div className="stat-item__value" style={{ fontSize: 16 }}>
             {profileQuery.data?.is_verified ? 'Verified' : 'Pending verification'}
           </div>
         </div>

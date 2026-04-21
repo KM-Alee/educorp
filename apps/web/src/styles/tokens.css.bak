@@ -1,0 +1,68 @@
+/* ═══════════════════════════════════════════════════════════════════
+   EduCorp — Cream / Black / White Design Tokens
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ─── Primary Palette ─── */
+  --cream: #F5F0E8;
+  --cream-light: #FAF8F4;
+  --cream-dark: #EDE7DB;
+  --white: #FFFFFF;
+  --black: #1A1A1A;
+  --black-soft: #2D2D2D;
+  --black-muted: #6B6B6B;
+  --black-faint: #9A9A9A;
+
+  /* ─── Functional Colors ─── */
+  --accent: #2C2C2C;
+  --accent-hover: #1A1A1A;
+  --success: #2D6A4F;
+  --success-bg: #D8F3DC;
+  --danger: #C1292E;
+  --danger-bg: #FDECEA;
+  --warning: #B45309;
+  --warning-bg: #FEF3C7;
+  --info: #1E6091;
+  --info-bg: #DBEAFE;
+
+  /* ─── Borders ─── */
+  --border: #E0DCD4;
+  --border-strong: #C8C3B8;
+  --border-on-white: #E5E5E5;
+
+  /* ─── Shadows ─── */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-lg: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-focus: 0 0 0 2px var(--cream-dark), 0 0 0 4px var(--black);
+
+  /* ─── Typography ─── */
+  --font-display: 'Space Grotesk Variable', 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'Inter Variable', 'Inter', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono Variable', 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* ─── Spacing (4px base) ─── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ─── Radii ─── */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 9999px;
+
+  /* ─── Layout ─── */
+  --header-height: 56px;
+  --sidebar-width: 240px;
+  --container-max: 1200px;
+  --container-narrow: 480px;
+}

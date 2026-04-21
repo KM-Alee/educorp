@@ -1,5 +1,25 @@
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import {
+  Compass,
+  BookOpen,
+  Award,
+  UserCog,
+  BookOpenCheck,
+  CheckCircle2,
+  GraduationCap,
+  FolderOpen,
+  ClipboardList,
+  Play,
+  Lock,
+  FileText,
+  Download,
+  ChevronDown,
+  ChevronUp,
+  Circle,
+  Trophy,
+} from 'lucide-react'
 
 import {
   cancelEnrollment,
@@ -10,11 +30,15 @@ import {
   getProgressDashboard,
   listCertificates,
   listEnrollments,
+  listAssets,
+  getAssetDownload,
+  type AssetOut,
   type CertificateDetail,
   type CertificateSummary,
   type DashboardCourse,
   type EnrollmentProgress,
   type EnrollmentRecord,
+  type LearningModuleProgress,
 } from '../../lib/api'
 import { getErrorMessage } from '../../lib/types'
 
@@ -121,35 +145,80 @@ export function DashboardPage() {
 
   return (
     <div className="page-stack">
-      <div className="page-header">
-        <h1 className="page-header__title">Learning dashboard</h1>
-        <p className="page-header__description">
-          Track active courses, resume work, and find recent certificates.
+      {/* Welcome banner */}
+      <div className="welcome-banner">
+        <h1 className="welcome-banner__title">Welcome back</h1>
+        <p className="welcome-banner__subtitle">
+          Track active courses, resume your learning, and earn certificates.
         </p>
+        <div className="welcome-banner__actions">
+          <Link className="btn btn--primary" to="/app/catalog">Browse catalog</Link>
+          <Link className="btn btn--outline" to="/app/certificates">My certificates</Link>
+        </div>
       </div>
 
+      {/* Quick actions */}
+      <div className="quick-actions">
+        <Link className="quick-action" to="/app/catalog">
+          <div className="quick-action__icon"><Compass size={22} /></div>
+          <div>
+            <div className="quick-action__label">Find courses</div>
+            <div className="quick-action__description">Explore the catalog</div>
+          </div>
+        </Link>
+        <Link className="quick-action" to="/app/learning">
+          <div className="quick-action__icon"><BookOpen size={22} /></div>
+          <div>
+            <div className="quick-action__label">My learning</div>
+            <div className="quick-action__description">Continue where you left off</div>
+          </div>
+        </Link>
+        <Link className="quick-action" to="/app/certificates">
+          <div className="quick-action__icon"><Award size={22} /></div>
+          <div>
+            <div className="quick-action__label">Certificates</div>
+            <div className="quick-action__description">View earned credentials</div>
+          </div>
+        </Link>
+        <Link className="quick-action" to="/app/profile">
+          <div className="quick-action__icon"><UserCog size={22} /></div>
+          <div>
+            <div className="quick-action__label">Profile</div>
+            <div className="quick-action__description">Manage your account</div>
+          </div>
+        </Link>
+      </div>
+
+      {/* Stats */}
       {dashboardQuery.data ? (
         <div className="stat-row">
           <div className="stat-item">
+            <div className="stat-item__icon"><BookOpenCheck size={20} /></div>
             <div className="stat-item__label">Active courses</div>
             <div className="stat-item__value">{dashboardQuery.data.active_courses}</div>
           </div>
           <div className="stat-item">
-            <div className="stat-item__label">Completed courses</div>
+            <div className="stat-item__icon"><CheckCircle2 size={20} /></div>
+            <div className="stat-item__label">Completed</div>
             <div className="stat-item__value">{dashboardQuery.data.completed_courses}</div>
           </div>
           <div className="stat-item">
+            <div className="stat-item__icon"><GraduationCap size={20} /></div>
             <div className="stat-item__label">Certificates</div>
             <div className="stat-item__value">{dashboardQuery.data.total_certificates}</div>
           </div>
         </div>
       ) : null}
 
+      {/* Main content */}
       <div className="page-columns page-columns--wide">
         <div className="card">
-          <div className="card__header">
-            <h2 className="card__title">In progress</h2>
-            <p className="card__description">Resume active learning directly from your dashboard.</p>
+          <div className="card__header-row">
+            <div>
+              <h2 className="card__title">In progress</h2>
+              <p className="card__description">Resume active learning directly from your dashboard.</p>
+            </div>
+            <Link className="btn btn--sm btn--secondary" to="/app/learning">View all</Link>
           </div>
 
           {dashboardQuery.isError ? (
@@ -163,14 +232,21 @@ export function DashboardPage() {
           </div>
 
           {!dashboardQuery.isLoading && !dashboardQuery.data?.courses.length ? (
-            <div className="empty">No learning activity yet. Enroll in a course from the catalog.</div>
+            <div className="empty">
+              <div className="empty__icon"><FolderOpen size={36} /></div>
+              <div className="empty__title">No courses yet</div>
+              <div className="empty__description">Enroll in a course from the catalog to start learning.</div>
+            </div>
           ) : null}
         </div>
 
         <div className="card">
-          <div className="card__header">
-            <h2 className="card__title">Recent enrollments</h2>
-            <p className="card__description">Jump into an enrollment or manage its current status.</p>
+          <div className="card__header-row">
+            <div>
+              <h2 className="card__title">Recent enrollments</h2>
+              <p className="card__description">Jump into an enrollment or manage its status.</p>
+            </div>
+            <Link className="btn btn--sm btn--secondary" to="/app/learning">View all</Link>
           </div>
 
           {enrollmentsQuery.isError ? (
@@ -184,7 +260,11 @@ export function DashboardPage() {
           </div>
 
           {!enrollmentsQuery.isLoading && !enrollmentsQuery.data?.data.length ? (
-            <div className="empty">No enrollments yet.</div>
+            <div className="empty">
+              <div className="empty__icon"><ClipboardList size={36} /></div>
+              <div className="empty__title">No enrollments</div>
+              <div className="empty__description">Start by browsing the course catalog.</div>
+            </div>
           ) : null}
         </div>
       </div>
@@ -228,6 +308,7 @@ export function LearningEnrollmentPage() {
   const { enrollmentId = '' } = useParams()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const [expandedModule, setExpandedModule] = useState<string | null>(null)
 
   const enrollmentQuery = useQuery({
     queryKey: ['enrollment', enrollmentId],
@@ -262,7 +343,7 @@ export function LearningEnrollmentPage() {
   })
 
   if (enrollmentQuery.isLoading || progressQuery.isLoading) {
-    return <div className="empty">Loading learning workspace...</div>
+    return <div className="empty">Loading your course...</div>
   }
 
   if (enrollmentQuery.isError) {
@@ -277,11 +358,14 @@ export function LearningEnrollmentPage() {
   const progress = progressQuery.data
 
   if (!enrollment || !progress) {
-    return <div className="empty">Learning workspace not found.</div>
+    return <div className="empty">Course workspace not found.</div>
   }
 
-  const canCancel = enrollment.status === 'ENROLLED'
   const isLocked = enrollment.status === 'CANCELLED' || progress.status === 'CANCELLED'
+  const canCancel = enrollment.status === 'ENROLLED' || enrollment.status === 'IN_PROGRESS'
+  const completedCount = progress.modules.filter((m) => m.is_completed).length
+  const totalCount = progress.modules.length
+  const allDone = totalCount > 0 && completedCount === totalCount
 
   return (
     <div className="page-stack">
@@ -289,101 +373,193 @@ export function LearningEnrollmentPage() {
         <div className="page-header__breadcrumb">
           <Link to="/app/learning">My learning</Link>
           <span>/</span>
-          <span className="mono">{enrollment.id.slice(0, 8)}</span>
+          <span>Course player</span>
         </div>
-        <h1 className="page-header__title">Enrollment workspace</h1>
+        <h1 className="page-header__title">
+          {allDone ? <><Trophy size={28} style={{ verticalAlign: 'middle', marginRight: 8 }} />Course complete!</> : 'Continue learning'}
+        </h1>
         <p className="page-header__description">
-          Completion is tracked per required module for this enrollment.
+          Work through each module below. Mark each one complete when you're done — you'll receive your certificate automatically.
         </p>
       </div>
 
-      <LearningSummary progress={progress} />
+      {/* Progress hero */}
+      <div className="learning-progress-hero">
+        <div className="learning-progress-hero__ring">
+          <svg viewBox="0 0 64 64" className="learning-progress-hero__svg">
+            <circle cx="32" cy="32" r="27" className="learning-progress-hero__track" />
+            <circle
+              cx="32" cy="32" r="27"
+              className="learning-progress-hero__fill"
+              strokeDasharray={`${(progress.progress_percent / 100) * 169.6} 169.6`}
+              strokeDashoffset="0"
+              transform="rotate(-90 32 32)"
+            />
+          </svg>
+          <span className="learning-progress-hero__pct">{progress.progress_percent.toFixed(0)}%</span>
+        </div>
+        <div className="learning-progress-hero__info">
+          <p className="learning-progress-hero__headline">
+            {allDone
+              ? 'You finished every module — great work.'
+              : `${completedCount} of ${totalCount} modules complete`}
+          </p>
+          <p className="learning-progress-hero__sub">
+            {isLocked
+              ? 'This enrollment has been cancelled.'
+              : allDone
+              ? 'Your certificate has been issued. Check the Certificates page.'
+              : 'Keep going — you can pick up right where you left off.'}
+          </p>
+          <div className="learning-progress-bar">
+            <div
+              className="learning-progress-bar__fill"
+              style={{ width: `${progress.progress_percent}%` }}
+            />
+          </div>
+        </div>
+        {canCancel && !allDone ? (
+          <button
+            className="btn btn--sm btn--ghost"
+            disabled={cancelMutation.isPending}
+            onClick={() => cancelMutation.mutate()}
+            type="button"
+          >
+            {cancelMutation.isPending ? 'Cancelling…' : 'Cancel enrollment'}
+          </button>
+        ) : null}
+      </div>
 
       {cancelMutation.isError ? (
         <div className="message message--error">{getErrorMessage(cancelMutation.error)}</div>
       ) : null}
+      {completeMutation.isError ? (
+        <div className="message message--error">{getErrorMessage(completeMutation.error)}</div>
+      ) : null}
 
-      <div className="card">
-        <div className="card__header">
-          <h2 className="card__title">Enrollment</h2>
-          <p className="card__description">Use this route as the active learning surface for progress updates.</p>
-        </div>
-
-        <div className="meta-list">
-          <div className="meta-item">
-            <div className="meta-item__label">Enrollment status</div>
-            <div className="meta-item__value">
-              <span className={statusBadgeClass(enrollment.status)}>{enrollment.status}</span>
-            </div>
-          </div>
-          <div className="meta-item">
-            <div className="meta-item__label">Course ID</div>
-            <div className="meta-item__value mono">{progress.course_id}</div>
-          </div>
-          <div className="meta-item">
-            <div className="meta-item__label">Started</div>
-            <div className="meta-item__value">
-              {progress.started_at ? new Date(progress.started_at).toLocaleString() : 'Not started'}
-            </div>
-          </div>
-        </div>
-
-        {canCancel ? (
-          <div className="btn-row" style={{ marginTop: '1rem' }}>
-            <button
-              className="btn btn--danger"
-              disabled={cancelMutation.isPending}
-              onClick={() => cancelMutation.mutate()}
-              type="button"
-            >
-              {cancelMutation.isPending ? 'Cancelling...' : 'Cancel enrollment'}
-            </button>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="card">
-        <div className="card__header">
-          <h2 className="card__title">Required modules</h2>
-          <p className="card__description">Completing all required modules awards the course certificate.</p>
-        </div>
-
-        {completeMutation.isError ? (
-          <div className="message message--error">{getErrorMessage(completeMutation.error)}</div>
-        ) : null}
-
-        <div className="course-list">
-          {progress.modules.map((module) => (
-            <div className="course-item" key={module.module_id}>
-              <div className="course-item__info">
-                <div className="course-item__title">{module.module_title}</div>
-                <div className="course-item__meta">
-                  {module.is_completed
-                    ? `Completed ${module.completed_at ? new Date(module.completed_at).toLocaleString() : ''}`
-                    : `${module.progress_percent.toFixed(0)}% complete`}
-                </div>
-              </div>
-              <div className="course-item__badges">
-                <span className={module.is_completed ? 'badge badge--success' : 'badge badge--warning'}>
-                  {module.is_completed ? 'Completed' : 'Pending'}
-                </span>
-                <button
-                  className="btn btn--sm btn--primary"
-                  disabled={module.is_completed || isLocked || completeMutation.isPending}
-                  onClick={() => completeMutation.mutate(module.module_id)}
-                  type="button"
-                >
-                  {module.is_completed ? 'Done' : 'Mark complete'}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+      {/* Module list */}
+      <div className="learning-modules">
+        {progress.modules.map((module, index) => (
+          <LearningModuleCard
+            key={module.module_id}
+            courseId={progress.course_id}
+            index={index}
+            isLocked={isLocked}
+            isPending={completeMutation.isPending}
+            module={module}
+            expanded={expandedModule === module.module_id}
+            onToggle={() =>
+              setExpandedModule((prev) => (prev === module.module_id ? null : module.module_id))
+            }
+            onComplete={() => completeMutation.mutate(module.module_id)}
+          />
+        ))}
 
         {!progress.modules.length ? (
-          <div className="empty">No required modules were captured for this enrollment.</div>
+          <div className="empty">No modules found for this enrollment.</div>
         ) : null}
       </div>
+    </div>
+  )
+}
+
+function LearningModuleCard({
+  module,
+  courseId,
+  index,
+  isLocked,
+  isPending,
+  expanded,
+  onToggle,
+  onComplete,
+}: {
+  module: LearningModuleProgress
+  courseId: string
+  index: number
+  isLocked: boolean
+  isPending: boolean
+  expanded: boolean
+  onToggle: () => void
+  onComplete: () => void
+}) {
+  const assetsQuery = useQuery({
+    queryKey: ['assets', courseId, module.module_id],
+    queryFn: () => listAssets(courseId, module.module_id),
+    enabled: expanded,
+  })
+
+  const handleDownload = async (asset: AssetOut) => {
+    try {
+      const dl = await getAssetDownload(courseId, module.module_id, asset.id)
+      window.open(dl.download_url, '_blank')
+    } catch {
+      /* no-op */
+    }
+  }
+
+  return (
+    <div className={`learning-module-card ${module.is_completed ? 'learning-module-card--done' : ''} ${isLocked ? 'learning-module-card--locked' : ''}`}>
+      <button className="learning-module-card__header" type="button" onClick={onToggle}>
+        <span className="learning-module-card__num">
+          {module.is_completed
+            ? <CheckCircle2 size={20} className="learning-module-card__check" />
+            : isLocked
+            ? <Lock size={18} />
+            : <span className="learning-module-card__index">{index + 1}</span>}
+        </span>
+        <span className="learning-module-card__title">{module.module_title}</span>
+        <span className="learning-module-card__meta">
+          {module.is_completed
+            ? <span className="badge badge--success">Completed</span>
+            : <span className="badge">{module.progress_percent.toFixed(0)}%</span>}
+        </span>
+        {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+      </button>
+
+      {expanded ? (
+        <div className="learning-module-card__body">
+          {module.is_completed && module.completed_at ? (
+            <p className="learning-module-card__completed-at">
+              <CheckCircle2 size={14} /> Completed on {new Date(module.completed_at).toLocaleString()}
+            </p>
+          ) : null}
+
+          <div className="learning-module-card__assets">
+            {assetsQuery.isLoading ? (
+              <p className="learning-module-card__assets-hint">Loading materials…</p>
+            ) : assetsQuery.data?.length ? (
+              assetsQuery.data.map((asset) => (
+                <button
+                  key={asset.id}
+                  className="module-asset-btn"
+                  onClick={() => handleDownload(asset)}
+                  type="button"
+                >
+                  <FileText size={15} />
+                  <span className="module-asset-btn__name">{asset.title || asset.file_name}</span>
+                  <Download size={13} />
+                </button>
+              ))
+            ) : (
+              <p className="learning-module-card__assets-hint">No study materials for this module.</p>
+            )}
+          </div>
+
+          {!module.is_completed && !isLocked ? (
+            <div className="learning-module-card__footer">
+              <button
+                className="btn btn--primary"
+                disabled={isPending}
+                onClick={onComplete}
+                type="button"
+              >
+                <BookOpenCheck size={16} />
+                {isPending ? 'Saving…' : 'Mark as complete'}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }

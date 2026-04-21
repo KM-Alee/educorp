@@ -1,7 +1,30 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import {
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
+  ClipboardList,
+  FileUp,
+  FolderOpen,
+  Info,
+  Layers,
+  Pencil,
+  Plus,
+  Rocket,
+  ShieldCheck,
+  Trash2,
+  CheckCircle2,
+  Circle,
+  Loader2,
+  XCircle,
+  Clock,
+  Ban,
+  RotateCcw,
+  Zap,
+} from 'lucide-react'
 
 import {
   activatePublishingVersion,
@@ -399,6 +422,224 @@ function ModuleAssetManager({
   )
 }
 
+type EditorTab = 'details' | 'curriculum' | 'content' | 'publish'
+
+/* ─── Publishing Pipeline Helpers ─── */
+
+const STEP_LABELS: Record<string, string> = {
+  preflight_review: 'Preflight check',
+  extract_text: 'Extracting content',
+  chunk_content: 'Processing chapters',
+  generate_embeddings: 'Building search index',
+  index_qdrant: 'Indexing for AI',
+  generate_quality_report: 'Quality report',
+  finalize_version: 'Finalizing',
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  PREPARING: 'Preparing',
+  REVIEW_REQUIRED: 'Waiting for admin approval',
+  PUBLISHING: 'Publishing in progress',
+  READY: 'Published successfully',
+  FAILED: 'Publishing failed',
+  CANCELLED: 'Cancelled',
+  SUPERSEDED: 'Replaced by newer version',
+}
+
+function PipelineStepIcon({ status }: { status: string }) {
+  if (status === 'COMPLETED') return <CheckCircle2 size={16} className="pipeline-icon pipeline-icon--done" />
+  if (status === 'RUNNING') return <Loader2 size={16} className="pipeline-icon pipeline-icon--running" />
+  if (status === 'FAILED') return <XCircle size={16} className="pipeline-icon pipeline-icon--failed" />
+  if (status === 'SKIPPED') return <Ban size={14} className="pipeline-icon pipeline-icon--skipped" />
+  return <Circle size={14} className="pipeline-icon pipeline-icon--pending" />
+}
+
+function PublishingPipeline({
+  publishingData,
+  canReview,
+  canCancel,
+  onApprove,
+  onReject,
+  onCancel,
+  onRetry,
+  onActivate,
+  isApprovePending,
+  isRejectPending,
+  isCancelPending,
+  isRetryPending,
+  isActivatePending,
+  courseVisibility,
+}: {
+  publishingData: PublishingVersion
+  canReview: boolean
+  canCancel: boolean
+  onApprove: () => void
+  onReject: () => void
+  onCancel: () => void
+  onRetry: () => void
+  onActivate: () => void
+  isApprovePending: boolean
+  isRejectPending: boolean
+  isCancelPending: boolean
+  isRetryPending: boolean
+  isActivatePending: boolean
+  courseVisibility: string
+}) {
+  const { status, approval_state, steps } = publishingData
+  const isActive = status === 'PREPARING' || status === 'PUBLISHING'
+  const isWaiting = status === 'REVIEW_REQUIRED'
+  const isDone = status === 'READY'
+  const isFailed = status === 'FAILED'
+  const isCancelled = status === 'CANCELLED'
+
+  return (
+    <div className="publishing-pipeline">
+      {/* Overall status banner */}
+      <div className={`pipeline-status pipeline-status--${status.toLowerCase().replace('_', '-')}`}>
+        <div className="pipeline-status__icon">
+          {isDone && <CheckCircle2 size={22} />}
+          {isActive && <Loader2 size={22} className="spin" />}
+          {isWaiting && <Clock size={22} />}
+          {isFailed && <XCircle size={22} />}
+          {isCancelled && <Ban size={22} />}
+          {status === 'SUPERSEDED' && <RotateCcw size={22} />}
+        </div>
+        <div className="pipeline-status__text">
+          <div className="pipeline-status__title">{STATUS_LABELS[status] ?? status}</div>
+          <div className="pipeline-status__sub">
+            Version {publishingData.version_number}
+            {publishingData.total_assets > 0 && ` · ${publishingData.total_assets} asset${publishingData.total_assets !== 1 ? 's' : ''}`}
+          </div>
+        </div>
+      </div>
+
+      {/* Admin action needed */}
+      {isWaiting && canReview && approval_state === 'PENDING' && (
+        <div className="pipeline-action-card">
+          <div className="pipeline-action-card__header">
+            <ShieldCheck size={18} />
+            <span>Admin approval required</span>
+          </div>
+          <p className="pipeline-action-card__text">
+            This course has passed the preflight check and needs your approval before publishing can continue.
+          </p>
+          <div className="btn-row">
+            <button className="btn btn--primary" disabled={isApprovePending} onClick={onApprove} type="button">
+              <CheckCircle2 size={16} style={{ marginRight: 4, verticalAlign: -2 }} />
+              {isApprovePending ? 'Approving...' : 'Approve & continue'}
+            </button>
+            <button className="btn btn--danger" disabled={isRejectPending} onClick={onReject} type="button">
+              <XCircle size={16} style={{ marginRight: 4, verticalAlign: -2 }} />
+              {isRejectPending ? 'Rejecting...' : 'Reject'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Instructor waiting message */}
+      {isWaiting && !canReview && approval_state === 'PENDING' && (
+        <div className="pipeline-action-card pipeline-action-card--waiting">
+          <div className="pipeline-action-card__header">
+            <Clock size={18} />
+            <span>Waiting for admin</span>
+          </div>
+          <p className="pipeline-action-card__text">
+            Your course has been submitted for review. An admin will approve or reject it. You'll see the status update here automatically.
+          </p>
+        </div>
+      )}
+
+      {/* Approved, processing */}
+      {isWaiting && approval_state === 'APPROVED' && (
+        <div className="pipeline-action-card pipeline-action-card--info">
+          <div className="pipeline-action-card__header">
+            <Loader2 size={18} className="spin" />
+            <span>Approved — resuming pipeline</span>
+          </div>
+        </div>
+      )}
+
+      {/* Pipeline steps timeline */}
+      <div className="pipeline-timeline">
+        <div className="pipeline-timeline__label">Pipeline progress</div>
+        {steps.map((step) => (
+          <div className={`pipeline-step ${step.status === 'RUNNING' ? 'pipeline-step--active' : ''} ${step.status === 'COMPLETED' ? 'pipeline-step--done' : ''} ${step.status === 'FAILED' ? 'pipeline-step--failed' : ''}`} key={step.id}>
+            <div className="pipeline-step__indicator">
+              <PipelineStepIcon status={step.status} />
+              <span className="pipeline-step__line" />
+            </div>
+            <div className="pipeline-step__body">
+              <div className="pipeline-step__name">{STEP_LABELS[step.step_name] ?? step.step_name}</div>
+              <div className="pipeline-step__status">
+                {step.status === 'COMPLETED' && step.completed_at
+                  ? `Done ${new Date(step.completed_at).toLocaleTimeString()}`
+                  : step.status === 'RUNNING'
+                    ? 'In progress...'
+                    : step.status === 'FAILED'
+                      ? step.error_message ?? 'Failed'
+                      : step.status === 'SKIPPED'
+                        ? 'Skipped'
+                        : 'Pending'}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Bottom actions */}
+      <div className="pipeline-actions">
+        {isFailed && (
+          <button className="btn btn--primary" disabled={isRetryPending} onClick={onRetry} type="button">
+            <RotateCcw size={16} style={{ marginRight: 4, verticalAlign: -2 }} />
+            {isRetryPending ? 'Retrying...' : 'Retry publishing'}
+          </button>
+        )}
+        {isDone && courseVisibility !== 'PUBLISHED' && (
+          <button className="btn btn--primary" disabled={isActivatePending} onClick={onActivate} type="button">
+            <Zap size={16} style={{ marginRight: 4, verticalAlign: -2 }} />
+            {isActivatePending ? 'Activating...' : 'Activate course'}
+          </button>
+        )}
+        {(isActive || isWaiting) && canCancel && (
+          <button className="btn btn--ghost" disabled={isCancelPending} onClick={onCancel} type="button">
+            {isCancelPending ? 'Cancelling...' : 'Cancel publishing'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+interface StepInfo {
+  key: EditorTab
+  label: string
+  icon: ReactNode
+  hint: string
+  done: boolean
+}
+
+function EditorStepper({ steps, active, onSelect }: { steps: StepInfo[]; active: EditorTab; onSelect: (t: EditorTab) => void }) {
+  return (
+    <div className="editor-stepper">
+      {steps.map((step, i) => (
+        <button
+          key={step.key}
+          className={`editor-stepper__step ${active === step.key ? 'editor-stepper__step--active' : ''} ${step.done ? 'editor-stepper__step--done' : ''}`}
+          onClick={() => onSelect(step.key)}
+          type="button"
+        >
+          <span className="editor-stepper__number">
+            {step.done ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+          </span>
+          <span className="editor-stepper__icon">{step.icon}</span>
+          <span className="editor-stepper__label">{step.label}</span>
+          {i < steps.length - 1 && <span className="editor-stepper__connector" />}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function CourseEditorPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -423,6 +664,7 @@ export function CourseEditorPage() {
   const [moduleDescription, setModuleDescription] = useState('')
   const [moduleEdits, setModuleEdits] = useState<Record<string, Pick<ModuleDetail, 'title' | 'description' | 'is_required'>>>({})
   const [publishingVersionId, setPublishingVersionId] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<EditorTab>('details')
 
   const courseQuery = useQuery({
     queryKey: ['course', courseId],
@@ -640,7 +882,17 @@ export function CourseEditorPage() {
   const publishingData = publishingQuery.data
   const canCancel = session?.user.roles.includes('admin')
   const canReview = Boolean(session?.user.roles.includes('admin'))
-  const preflightSummary = publishingData?.preflight_summary_json
+
+  const hasTitle = Boolean(courseQuery.data?.title)
+  const hasModules = modules.length > 0
+  const hasDraftContent = Boolean(draftContentQuery.data?.content)
+
+  const steps: StepInfo[] = [
+    { key: 'details', label: 'Course details', icon: <Pencil size={16} />, hint: 'Title, description, category and tags', done: hasTitle },
+    { key: 'curriculum', label: 'Modules & assets', icon: <Layers size={16} />, hint: 'Structure your course into modules, then upload files to each', done: hasModules },
+    { key: 'content', label: 'Draft content', icon: <BookOpen size={16} />, hint: 'Learning objectives, overview and lesson notes', done: hasDraftContent },
+    { key: 'publish', label: 'Validate & publish', icon: <Rocket size={16} />, hint: 'Check for issues, then launch your course', done: courseQuery.data?.visibility === 'PUBLISHED' },
+  ]
 
   return (
     <div className="page-stack">
@@ -651,115 +903,147 @@ export function CourseEditorPage() {
           <span>{courseQuery.data?.title}</span>
         </div>
         <h1 className="page-header__title">{courseQuery.data?.title}</h1>
-        <p className="page-header__description">Edit course details, manage modules and assets, and validate the draft.</p>
-      </div>
-
-      <div className="stat-row">
-        <div className="stat-item">
-          <div className="stat-item__label">Visibility</div>
-          <div className="stat-item__value">{courseQuery.data?.visibility}</div>
-        </div>
-        <div className="stat-item">
-          <div className="stat-item__label">Modules</div>
-          <div className="stat-item__value">{modules.length}</div>
-        </div>
-        <div className="stat-item">
-          <div className="stat-item__label">Slug</div>
-          <div className="stat-item__value mono">{courseQuery.data?.slug}</div>
-        </div>
-        <div className="stat-item">
-          <div className="stat-item__label">Updated</div>
-          <div className="stat-item__value">{new Date(courseQuery.data?.updated_at ?? '').toLocaleString()}</div>
+        <div className="editor-status-bar">
+          <span className="badge badge--accent">{courseQuery.data?.visibility}</span>
+          <span className="editor-status-bar__stat">{modules.length} module{modules.length !== 1 ? 's' : ''}</span>
+          <span className="editor-status-bar__sep">·</span>
+          <span className="editor-status-bar__stat">Updated {new Date(courseQuery.data?.updated_at ?? '').toLocaleDateString()}</span>
         </div>
       </div>
 
-      {/* Details + Validation */}
-      <div className="page-columns--wide page-columns">
-        <div className="card">
-          <div className="card__header">
-            <h2 className="card__title">Course details</h2>
+      <EditorStepper steps={steps} active={activeTab} onSelect={setActiveTab} />
+
+      {/* Hint bar for active tab */}
+      <div className="editor-hint">
+        <Info size={16} />
+        <span>{steps.find((s) => s.key === activeTab)?.hint}</span>
+      </div>
+
+      {/* ── Tab: Course Details ── */}
+      {activeTab === 'details' && (
+        <div className="page-columns--wide page-columns">
+          <div className="card">
+            <div className="card__header">
+              <h2 className="card__title">Course details</h2>
+              <p className="card__description">Fill in the essential info about your course. Title and description are required.</p>
+            </div>
+
+            <form
+              className="form-stack"
+              onSubmit={(e) => {
+                e.preventDefault()
+                updateCourseMutation.mutate(courseForm)
+              }}
+            >
+              <label className="form-field">
+                <span className="form-field__label">Title *</span>
+                <input
+                  placeholder="e.g. Introduction to Machine Learning"
+                  value={courseForm.title}
+                  onChange={(e) => updateCourseForm('title', e.target.value)}
+                />
+              </label>
+
+              <label className="form-field">
+                <span className="form-field__label">Description *</span>
+                <textarea
+                  placeholder="What will students learn? What makes this course unique?"
+                  value={courseForm.description ?? ''}
+                  onChange={(e) => updateCourseForm('description', e.target.value)}
+                />
+              </label>
+
+              <div className="form-row">
+                <label className="form-field">
+                  <span className="form-field__label">Short description</span>
+                  <input
+                    placeholder="A brief one-liner for course cards"
+                    value={courseForm.short_description ?? ''}
+                    onChange={(e) => updateCourseForm('short_description', e.target.value)}
+                  />
+                </label>
+                <label className="form-field">
+                  <span className="form-field__label">Category</span>
+                  <input
+                    placeholder="e.g. Data Science, Web Dev"
+                    value={courseForm.category ?? ''}
+                    onChange={(e) => updateCourseForm('category', e.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div className="form-row">
+                <label className="form-field">
+                  <span className="form-field__label">Difficulty</span>
+                  <select
+                    value={courseForm.difficulty ?? ''}
+                    onChange={(e) => updateCourseForm('difficulty', e.target.value)}
+                  >
+                    <option value="beginner">Beginner</option>
+                    <option value="intermediate">Intermediate</option>
+                    <option value="advanced">Advanced</option>
+                  </select>
+                </label>
+                <label className="form-field">
+                  <span className="form-field__label">Estimated duration</span>
+                  <input
+                    placeholder="e.g. PT4H (4 hours)"
+                    value={courseForm.estimated_duration ?? ''}
+                    onChange={(e) => updateCourseForm('estimated_duration', e.target.value)}
+                  />
+                </label>
+              </div>
+
+              <label className="form-field">
+                <span className="form-field__label">Tags</span>
+                <input
+                  placeholder="python, machine-learning, beginner-friendly"
+                  value={courseTagsValue}
+                  onChange={(e) =>
+                    setCourseTagsState({ courseId, value: e.target.value, dirty: true })
+                  }
+                />
+              </label>
+
+              {updateCourseMutation.isError ? <StatusMsg type="error" text={getErrorMessage(updateCourseMutation.error)} /> : null}
+              {updateCourseMutation.isSuccess ? <StatusMsg type="success" text="Course details saved." /> : null}
+
+              <div className="btn-row">
+                <button className="btn btn--primary" disabled={updateCourseMutation.isPending} type="submit">
+                  {updateCourseMutation.isPending ? 'Saving...' : 'Save details'}
+                </button>
+                <button
+                  className="btn btn--ghost"
+                  onClick={() => setActiveTab('curriculum')}
+                  type="button"
+                >
+                  Next: Add modules →
+                </button>
+              </div>
+            </form>
           </div>
 
-          <form
-            className="form-stack"
-            onSubmit={(e) => {
-              e.preventDefault()
-              updateCourseMutation.mutate(courseForm)
-            }}
-          >
-            <label className="form-field">
-              <span className="form-field__label">Title</span>
-              <input
-                value={courseForm.title}
-                onChange={(e) => updateCourseForm('title', e.target.value)}
-              />
-            </label>
-
-            <label className="form-field">
-              <span className="form-field__label">Description</span>
-              <textarea
-                value={courseForm.description ?? ''}
-                onChange={(e) => updateCourseForm('description', e.target.value)}
-              />
-            </label>
-
-            <div className="form-row">
-              <label className="form-field">
-                <span className="form-field__label">Short description</span>
-                <input
-                  value={courseForm.short_description ?? ''}
-                  onChange={(e) => updateCourseForm('short_description', e.target.value)}
-                />
-              </label>
-              <label className="form-field">
-                <span className="form-field__label">Category</span>
-                <input
-                  value={courseForm.category ?? ''}
-                  onChange={(e) => updateCourseForm('category', e.target.value)}
-                />
-              </label>
+          <div className="card">
+            <div className="card__header">
+              <h2 className="card__title">Course info</h2>
             </div>
-
-            <div className="form-row">
-              <label className="form-field">
-                <span className="form-field__label">Difficulty</span>
-                <select
-                  value={courseForm.difficulty ?? ''}
-                  onChange={(e) => updateCourseForm('difficulty', e.target.value)}
-                >
-                  <option value="beginner">Beginner</option>
-                  <option value="intermediate">Intermediate</option>
-                  <option value="advanced">Advanced</option>
-                </select>
-              </label>
-              <label className="form-field">
-                <span className="form-field__label">Estimated duration</span>
-                <input
-                  value={courseForm.estimated_duration ?? ''}
-                  onChange={(e) => updateCourseForm('estimated_duration', e.target.value)}
-                />
-              </label>
+            <div className="meta-list">
+              <div className="meta-item">
+                <div className="meta-item__label">Slug</div>
+                <div className="meta-item__value mono">{courseQuery.data?.slug}</div>
+              </div>
+              <div className="meta-item">
+                <div className="meta-item__label">Visibility</div>
+                <div className="meta-item__value">{courseQuery.data?.visibility}</div>
+              </div>
+              <div className="meta-item">
+                <div className="meta-item__label">Updated</div>
+                <div className="meta-item__value">{new Date(courseQuery.data?.updated_at ?? '').toLocaleString()}</div>
+              </div>
             </div>
-
-            <label className="form-field">
-              <span className="form-field__label">Tags</span>
-              <input
-                value={courseTagsValue}
-                onChange={(e) =>
-                  setCourseTagsState({ courseId, value: e.target.value, dirty: true })
-                }
-              />
-            </label>
-
-            {updateCourseMutation.isError ? <StatusMsg type="error" text={getErrorMessage(updateCourseMutation.error)} /> : null}
-            {updateCourseMutation.isSuccess ? <StatusMsg type="success" text="Course details saved." /> : null}
-
-            <div className="btn-row">
-              <button className="btn btn--primary" disabled={updateCourseMutation.isPending} type="submit">
-                {updateCourseMutation.isPending ? 'Saving...' : 'Save details'}
-              </button>
+            <div className="btn-row" style={{ marginTop: 'var(--space-4)' }}>
               <button
-                className="btn btn--danger"
+                className="btn btn--danger btn--sm"
                 disabled={deleteCourseMutation.isPending}
                 onClick={() => deleteCourseMutation.mutate()}
                 type="button"
@@ -767,192 +1051,193 @@ export function CourseEditorPage() {
                 {deleteCourseMutation.isPending ? 'Deleting...' : 'Delete draft'}
               </button>
             </div>
-          </form>
+          </div>
         </div>
+      )}
 
+      {/* ── Tab: Curriculum (Modules & Assets) ── */}
+      {activeTab === 'curriculum' && (
         <div className="page-stack">
-          <div className="card">
-            <div className="card__header">
-              <h2 className="card__title">Draft validation</h2>
-              <p className="card__description">Check if the draft is ready for publishing.</p>
+          {/* Module list first — assets are right here with each module */}
+          {modules.length > 0 && (
+            <div className="editor-section-label">
+              <ClipboardList size={16} />
+              <span>{modules.length} module{modules.length !== 1 ? 's' : ''} — expand any module to upload assets</span>
             </div>
+          )}
 
-            <div className="btn-row" style={{ marginBottom: '0.75rem' }}>
-              <button className="btn btn--primary" disabled={validateDraftMutation.isPending} onClick={() => validateDraftMutation.mutate()} type="button">
-                {validateDraftMutation.isPending ? 'Validating...' : 'Run validation'}
-              </button>
-            </div>
-
-            {validateDraftMutation.isError ? (
-              <StatusMsg type="error" text={getErrorMessage(validateDraftMutation.error)} />
-            ) : null}
-
-            {validationResult ? (
-              <div className="validation-result">
-                <div className={`message ${validationResult.is_valid ? 'message--success' : 'message--warning'}`}>
-                  {validationResult.is_valid
-                    ? 'Draft is valid and ready for publishing.'
-                    : `${validationResult.issues.length} issue(s) need attention.`}
-                </div>
-                {validationResult.issues.map((issue) => (
-                  <div className="validation-issue" key={`${issue.field}-${issue.message}`}>
-                    <div className="validation-issue__field">{issue.field}</div>
-                    <div className="validation-issue__message">{issue.message}</div>
+          {modules.map((mod, index) => (
+            <div className="module-panel" key={mod.id}>
+              <div className="module-panel__header">
+                <div className="module-panel__header-left">
+                  <span className="module-panel__badge">{index + 1}</span>
+                  <div>
+                    <div className="module-panel__title">{mod.title}</div>
+                    {mod.description && (
+                      <div className="module-panel__order">{mod.description}</div>
+                    )}
                   </div>
-                ))}
+                </div>
+                <div className="btn-row">
+                  <button className="btn btn--sm btn--ghost" disabled={index === 0 || reorderModulesMutation.isPending} onClick={() => moveModule(mod.id, -1)} type="button" title="Move up">
+                    <ChevronUp size={16} />
+                  </button>
+                  <button className="btn btn--sm btn--ghost" disabled={index === modules.length - 1 || reorderModulesMutation.isPending} onClick={() => moveModule(mod.id, 1)} type="button" title="Move down">
+                    <ChevronDown size={16} />
+                  </button>
+                </div>
               </div>
-            ) : (
-              <div className="empty">No validation run yet.</div>
-            )}
+
+              <details className="module-panel__details">
+                <summary className="module-panel__toggle">
+                  <Pencil size={14} /> Edit module details
+                </summary>
+
+                <div className="form-stack" style={{ marginTop: 'var(--space-3)' }}>
+                  <label className="form-field">
+                    <span className="form-field__label">Title</span>
+                    <input
+                      value={moduleEdits[mod.id]?.title ?? mod.title}
+                      onChange={(e) =>
+                        setModuleEdits((c) => ({
+                          ...c,
+                          [mod.id]: {
+                            ...(c[mod.id] ?? { title: mod.title, description: mod.description, is_required: mod.is_required }),
+                            title: e.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+
+                  <label className="form-field">
+                    <span className="form-field__label">Description</span>
+                    <textarea
+                      value={moduleEdits[mod.id]?.description ?? mod.description ?? ''}
+                      onChange={(e) =>
+                        setModuleEdits((c) => ({
+                          ...c,
+                          [mod.id]: {
+                            ...(c[mod.id] ?? { title: mod.title, description: mod.description, is_required: mod.is_required }),
+                            description: e.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+
+                  <label className="form-field--inline form-field">
+                    <input
+                      checked={moduleEdits[mod.id]?.is_required ?? mod.is_required}
+                      onChange={(e) =>
+                        setModuleEdits((c) => ({
+                          ...c,
+                          [mod.id]: {
+                            ...(c[mod.id] ?? { title: mod.title, description: mod.description, is_required: mod.is_required }),
+                            is_required: e.target.checked,
+                          },
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    <span className="form-field__label">Required for completion</span>
+                  </label>
+
+                  <div className="btn-row">
+                    <button className="btn btn--sm" onClick={() => updateModuleMutation.mutate(mod.id)} type="button">
+                      Save changes
+                    </button>
+                    <button className="btn btn--sm btn--danger" onClick={() => deleteModuleMutation.mutate(mod.id)} type="button">
+                      <Trash2 size={14} style={{ marginRight: 4, verticalAlign: -2 }} /> Delete module
+                    </button>
+                  </div>
+                </div>
+              </details>
+
+              {/* Assets section with guidance */}
+              <div className="module-panel__assets-section">
+                <div className="module-panel__assets-header">
+                  <FileUp size={16} />
+                  <span className="module-panel__assets-label">Assets</span>
+                  <span className="module-panel__assets-hint">Upload PDFs, slides, docs, or subtitle files for this module</span>
+                </div>
+                <ModuleAssetManager courseId={courseId} module={mod} />
+              </div>
+            </div>
+          ))}
+
+          {!modulesQuery.isLoading && !modules.length ? (
+            <div className="editor-empty-state">
+              <FolderOpen size={40} strokeWidth={1.5} />
+              <div className="editor-empty-state__title">No modules yet</div>
+              <div className="editor-empty-state__text">
+                Add your first module below — each module holds its own assets (PDFs, slides, docs).
+              </div>
+            </div>
+          ) : null}
+
+          {/* Compact add-module form */}
+          <div className="module-add-form">
+            <form
+              className="module-add-form__inner"
+              onSubmit={(e) => {
+                e.preventDefault()
+                createModuleMutation.mutate()
+              }}
+            >
+              <div className="module-add-form__fields">
+                <input
+                  className="module-add-form__input"
+                  placeholder="New module title…"
+                  value={moduleTitle}
+                  onChange={(e) => setModuleTitle(e.target.value)}
+                />
+                <input
+                  className="module-add-form__input module-add-form__input--desc"
+                  placeholder="Description (optional)"
+                  value={moduleDescription}
+                  onChange={(e) => setModuleDescription(e.target.value)}
+                />
+              </div>
+              <button className="btn btn--primary btn--sm" disabled={!moduleTitle || createModuleMutation.isPending} type="submit">
+                <Plus size={14} style={{ marginRight: 3, verticalAlign: -2 }} />
+                {createModuleMutation.isPending ? 'Adding…' : 'Add module'}
+              </button>
+            </form>
+            {createModuleMutation.isError ? <StatusMsg type="error" text={getErrorMessage(createModuleMutation.error)} /> : null}
           </div>
 
-          <div className="card">
-            <div className="card__header">
-              <h2 className="card__title">Publishing</h2>
-              <p className="card__description">Launch the publishing pipeline and track progress.</p>
-            </div>
-
-            <div className="btn-row" style={{ marginBottom: '0.75rem' }}>
+          {modules.length > 0 && (
+            <div className="btn-row" style={{ justifyContent: 'flex-end' }}>
               <button
-                className="btn btn--primary"
-                disabled={publishMutation.isPending}
-                onClick={() => publishMutation.mutate()}
+                className="btn btn--ghost"
+                onClick={() => setActiveTab('content')}
                 type="button"
               >
-                {publishMutation.isPending ? 'Publishing...' : 'Publish draft'}
+                Next: Draft content →
               </button>
-              {publishingData?.status === 'FAILED' ? (
-                <button
-                  className="btn btn--ghost"
-                  disabled={retryMutation.isPending}
-                  onClick={() => retryMutation.mutate(publishingData.id)}
-                  type="button"
-                >
-                  {retryMutation.isPending ? 'Retrying...' : 'Retry'}
-                </button>
-              ) : null}
-              {publishingData?.status === 'REVIEW_REQUIRED' && canReview ? (
-                <>
-                  <button
-                    className="btn btn--primary"
-                    disabled={approveMutation.isPending || publishingData.approval_state === 'APPROVED'}
-                    onClick={() => approveMutation.mutate(publishingData.id)}
-                    type="button"
-                  >
-                    {approveMutation.isPending ? 'Approving...' : 'Approve'}
-                  </button>
-                  <button
-                    className="btn btn--danger"
-                    disabled={rejectMutation.isPending || publishingData.approval_state === 'REJECTED'}
-                    onClick={() => rejectMutation.mutate(publishingData.id)}
-                    type="button"
-                  >
-                    {rejectMutation.isPending ? 'Rejecting...' : 'Reject'}
-                  </button>
-                </>
-              ) : null}
-              {publishingData?.status === 'READY' && courseQuery.data?.visibility !== 'PUBLISHED' ? (
-                <button
-                  className="btn btn--primary"
-                  disabled={activateMutation.isPending}
-                  onClick={() => activateMutation.mutate(publishingData.id)}
-                  type="button"
-                >
-                  {activateMutation.isPending ? 'Activating...' : 'Activate'}
-                </button>
-              ) : null}
-              {(publishingData?.status === 'PUBLISHING' || publishingData?.status === 'REVIEW_REQUIRED') && canCancel ? (
-                <button
-                  className="btn btn--danger"
-                  disabled={cancelMutation.isPending}
-                  onClick={() => cancelMutation.mutate(publishingData.id)}
-                  type="button"
-                >
-                  {cancelMutation.isPending ? 'Cancelling...' : 'Cancel'}
-                </button>
-              ) : null}
             </div>
+          )}
+        </div>
+      )}
 
-            {publishMutation.isError ? (
-              <StatusMsg type="error" text={getErrorMessage(publishMutation.error)} />
-            ) : null}
-            {retryMutation.isError ? (
-              <StatusMsg type="error" text={getErrorMessage(retryMutation.error)} />
-            ) : null}
-            {cancelMutation.isError ? (
-              <StatusMsg type="error" text={getErrorMessage(cancelMutation.error)} />
-            ) : null}
-            {approveMutation.isError ? (
-              <StatusMsg type="error" text={getErrorMessage(approveMutation.error)} />
-            ) : null}
-            {rejectMutation.isError ? (
-              <StatusMsg type="error" text={getErrorMessage(rejectMutation.error)} />
-            ) : null}
-            {activateMutation.isError ? (
-              <StatusMsg type="error" text={getErrorMessage(activateMutation.error)} />
-            ) : null}
-
-            {publishingQuery.isError ? (
-              <StatusMsg type="error" text={getErrorMessage(publishingQuery.error)} />
-            ) : null}
-
-            {publishingData ? (
-              <div className="validation-result">
-                <div className={`message ${publishingData.status === 'READY' ? 'message--success' : publishingData.status === 'FAILED' || publishingData.status === 'CANCELLED' ? 'message--error' : 'message--warning'}`}>
-                  Status: {publishingData.status}
-                </div>
-                <div className="meta-list">
-                  <div className="meta-item">
-                    <div className="meta-item__label">Version</div>
-                    <div className="meta-item__value">{publishingData.version_number}</div>
-                  </div>
-                  <div className="meta-item">
-                    <div className="meta-item__label">Assets</div>
-                    <div className="meta-item__value">{publishingData.total_assets}</div>
-                  </div>
-                  <div className="meta-item">
-                    <div className="meta-item__label">Chunks</div>
-                    <div className="meta-item__value">{publishingData.total_chunks}</div>
-                  </div>
-                  <div className="meta-item">
-                    <div className="meta-item__label">Approval</div>
-                    <div className="meta-item__value">{publishingData.approval_state}</div>
-                  </div>
-                  <div className="meta-item">
-                    <div className="meta-item__label">Manifest hash</div>
-                    <div className="meta-item__value mono">{publishingData.manifest_hash.slice(0, 12)}...</div>
-                  </div>
-                </div>
-                {preflightSummary ? (
-                  <div className="meta-list" style={{ marginBottom: '0.75rem' }}>
-                    <div className="meta-item">
-                      <div className="meta-item__label">Estimated pages</div>
-                      <div className="meta-item__value">{String(preflightSummary.estimated_pages ?? '0')}</div>
-                    </div>
-                    <div className="meta-item">
-                      <div className="meta-item__label">Flagged assets</div>
-                      <div className="meta-item__value">{String(preflightSummary.flagged_assets ?? '0')}</div>
-                    </div>
-                  </div>
-                ) : null}
-                <div className="validation-list">
-                  {publishingData.steps.map((step) => (
-                    <div className="validation-issue" key={step.id}>
-                      <div className="validation-issue__field">{step.step_name}</div>
-                      <div className="validation-issue__message">{step.status}</div>
-                    </div>
-                  ))}
-                </div>
+      {/* ── Tab: Draft Content ── */}
+      {activeTab === 'content' && (
+        <div className="page-stack">
+          <div className="editor-callout">
+            <div className="editor-callout__icon"><BookOpen size={20} /></div>
+            <div className="editor-callout__body">
+              <div className="editor-callout__title">What goes here?</div>
+              <div className="editor-callout__text">
+                Draft content is stored separately and supports rich structured data. Use it for the course <strong>overview</strong>, <strong>learning objectives</strong>, and <strong>lesson notes</strong> per module.
               </div>
-            ) : (
-              <div className="empty">No publishing run yet.</div>
-            )}
+            </div>
           </div>
 
           <div className="card">
             <div className="card__header">
-              <h2 className="card__title">Draft content</h2>
-              <p className="card__description">Persist rich authoring content in MongoDB.</p>
+              <h2 className="card__title">Draft content (JSON)</h2>
+              <p className="card__description">Edit the structured content below. Suggested keys: <code>overview</code>, <code>learning_objectives</code>, <code>lesson_notes</code>.</p>
             </div>
 
             <div className="form-stack">
@@ -988,6 +1273,13 @@ export function CourseEditorPage() {
                 >
                   {saveDraftContentMutation.isPending ? 'Saving...' : 'Save content'}
                 </button>
+                <button
+                  className="btn btn--ghost"
+                  onClick={() => setActiveTab('publish')}
+                  type="button"
+                >
+                  Next: Validate & publish →
+                </button>
               </div>
 
               <div className="meta-list">
@@ -999,156 +1291,245 @@ export function CourseEditorPage() {
                       : 'Not saved yet'}
                   </div>
                 </div>
-                <div className="meta-item">
-                  <div className="meta-item__label">Suggested keys</div>
-                  <div className="meta-item__value mono">overview, learning_objectives, lesson_notes</div>
+              </div>
+            </div>
+          </div>
+
+          {courseQuery.data?.visibility === 'PUBLISHED' ? (
+            <>
+              <AIAssistantPanel
+                courseId={courseId}
+                modules={modules}
+                canAsk
+              />
+              <AIEnhancementPanel
+                courseId={courseId}
+                modules={modules}
+                canEnhance
+              />
+            </>
+          ) : (
+            <div className="editor-hint">
+              <Zap size={16} />
+              <span>AI assistant &amp; enhancements will unlock after you publish and activate this course.</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Tab: Validate & Publish ── */}
+      {activeTab === 'publish' && (
+        <div className="page-stack">
+          {/* Step 1: Validation */}
+          <div className="card">
+            <div className="card__header">
+              <h2 className="card__title">
+                <ShieldCheck size={18} style={{ marginRight: 6, verticalAlign: -3 }} />
+                Step 1 — Validate your draft
+              </h2>
+              <p className="card__description">Check that your course has all the required info before submitting for review.</p>
+            </div>
+
+            <div className="btn-row" style={{ marginBottom: '0.75rem' }}>
+              <button className="btn btn--primary" disabled={validateDraftMutation.isPending} onClick={() => validateDraftMutation.mutate()} type="button">
+                {validateDraftMutation.isPending ? 'Checking...' : 'Run validation'}
+              </button>
+            </div>
+
+            {validateDraftMutation.isError ? (
+              <StatusMsg type="error" text={getErrorMessage(validateDraftMutation.error)} />
+            ) : null}
+
+            {validationResult ? (
+              <div className="validation-result">
+                <div className={`message ${validationResult.is_valid ? 'message--success' : 'message--warning'}`}>
+                  {validationResult.is_valid
+                    ? 'All checks passed — you can submit for publishing.'
+                    : `${validationResult.issues.length} issue(s) need fixing before you can publish.`}
                 </div>
+                {validationResult.issues.map((issue) => (
+                  <div className="validation-issue" key={`${issue.field}-${issue.message}`}>
+                    <div className="validation-issue__field">{issue.field}</div>
+                    <div className="validation-issue__message">{issue.message}</div>
+                  </div>
+                ))}
               </div>
+            ) : (
+              <div className="empty">Click "Run validation" to check your draft.</div>
+            )}
+          </div>
+
+          {/* Step 2: Submit for publishing */}
+          <div className="card">
+            <div className="card__header">
+              <h2 className="card__title">
+                <Rocket size={18} style={{ marginRight: 6, verticalAlign: -3 }} />
+                Step 2 — Submit for publishing
+              </h2>
+              <p className="card__description">
+                {!publishingData
+                  ? 'Once validation passes, click below to submit your course. An admin will review and approve it.'
+                  : 'Your course is in the publishing pipeline. Track progress below.'}
+              </p>
             </div>
+
+            {!publishingData && (
+              <>
+                <div className="editor-callout" style={{ marginBottom: 'var(--space-4)' }}>
+                  <div className="editor-callout__icon"><Info size={20} /></div>
+                  <div className="editor-callout__body">
+                    <div className="editor-callout__title">How publishing works</div>
+                    <div className="editor-callout__text">
+                      <strong>1.</strong> You submit the draft → <strong>2.</strong> System runs a preflight check → <strong>3.</strong> An admin reviews and approves → <strong>4.</strong> Course is processed and published automatically.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="btn-row">
+                  <button
+                    className="btn btn--primary"
+                    disabled={publishMutation.isPending}
+                    onClick={() => publishMutation.mutate()}
+                    type="button"
+                  >
+                    <Rocket size={16} style={{ marginRight: 4, verticalAlign: -2 }} />
+                    {publishMutation.isPending ? 'Submitting...' : 'Submit for publishing'}
+                  </button>
+                </div>
+
+                {publishMutation.isError ? (
+                  <StatusMsg type="error" text={getErrorMessage(publishMutation.error)} />
+                ) : null}
+              </>
+            )}
+
+            {/* Pipeline visualization */}
+            {publishingData && (
+              <PublishingPipeline
+                publishingData={publishingData}
+                canReview={canReview}
+                canCancel={Boolean(canCancel)}
+                onApprove={() => approveMutation.mutate(publishingData.id)}
+                onReject={() => rejectMutation.mutate(publishingData.id)}
+                onCancel={() => cancelMutation.mutate(publishingData.id)}
+                onRetry={() => retryMutation.mutate(publishingData.id)}
+                onActivate={() => activateMutation.mutate(publishingData.id)}
+                isApprovePending={approveMutation.isPending}
+                isRejectPending={rejectMutation.isPending}
+                isCancelPending={cancelMutation.isPending}
+                isRetryPending={retryMutation.isPending}
+                isActivatePending={activateMutation.isPending}
+                courseVisibility={courseQuery.data?.visibility ?? ''}
+              />
+            )}
+
+            {/* Error display for any mutation */}
+            {retryMutation.isError ? <StatusMsg type="error" text={getErrorMessage(retryMutation.error)} /> : null}
+            {cancelMutation.isError ? <StatusMsg type="error" text={getErrorMessage(cancelMutation.error)} /> : null}
+            {approveMutation.isError ? <StatusMsg type="error" text={getErrorMessage(approveMutation.error)} /> : null}
+            {rejectMutation.isError ? <StatusMsg type="error" text={getErrorMessage(rejectMutation.error)} /> : null}
+            {activateMutation.isError ? <StatusMsg type="error" text={getErrorMessage(activateMutation.error)} /> : null}
+            {publishingQuery.isError ? <StatusMsg type="error" text={getErrorMessage(publishingQuery.error)} /> : null}
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+/* ─── Instructor: Course Enrollments ─────────────────────────────────── */
+import {
+  listCourseEnrollments,
+  type EnrollmentRecord,
+} from '../../lib/api'
+
+export function InstructorEnrollmentsPage() {
+  const { courseId = '' } = useParams()
+  const [status, setStatus] = useState('')
+
+  const courseQuery = useQuery({
+    queryKey: ['course', courseId],
+    queryFn: () => getCourse(courseId),
+    enabled: Boolean(courseId),
+  })
+
+  const enrollmentsQuery = useQuery({
+    queryKey: ['course-enrollments', courseId, status],
+    queryFn: () => listCourseEnrollments(courseId, { status: status || undefined }),
+    enabled: Boolean(courseId),
+  })
+
+  const course = courseQuery.data
+  const enrollments: EnrollmentRecord[] = enrollmentsQuery.data?.data ?? []
+
+  return (
+    <div className="page-stack">
+      <div className="page-header">
+        <div className="page-header__breadcrumb">
+          <Link to="/app/courses">My courses</Link>
+          <span>/</span>
+          <Link to={`/app/courses/${courseId}`}>{course?.title ?? courseId.slice(0, 8)}</Link>
+          <span>/</span>
+          <span>Students</span>
+        </div>
+        <h1 className="page-header__title">Enrolled students</h1>
+        <p className="page-header__description">
+          Students currently enrolled in <strong>{course?.title ?? 'this course'}</strong>.
+        </p>
       </div>
 
-      <div className="page-stack">
-        <AIAssistantPanel
-          courseId={courseId}
-          modules={modules}
-          canAsk={courseQuery.data?.visibility === 'PUBLISHED'}
-          disabledMessage={
-            courseQuery.data?.visibility !== 'PUBLISHED'
-              ? 'Publish and activate this course to use the AI assistant.'
-              : undefined
-          }
-        />
-        <AIEnhancementPanel
-          courseId={courseId}
-          modules={modules}
-          canEnhance={courseQuery.data?.visibility === 'PUBLISHED'}
-          disabledMessage={
-            courseQuery.data?.visibility !== 'PUBLISHED'
-              ? 'Publish and activate this course to use instructor enhancements.'
-              : undefined
-          }
-        />
-      </div>
-
-      {/* Modules */}
       <div className="card">
-        <div className="card__header">
-          <h2 className="card__title">Modules &amp; assets</h2>
-          <p className="card__description">Structure the course and manage files.</p>
+        <div className="filter-bar" style={{ marginBottom: '1rem' }}>
+          <label className="form-field">
+            <span className="form-field__label">Status</span>
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="">All</option>
+              <option value="ENROLLED">Active</option>
+              <option value="COMPLETED">Completed</option>
+              <option value="CANCELLED">Cancelled</option>
+            </select>
+          </label>
         </div>
 
-        <form
-          className="form-stack"
-          onSubmit={(e) => {
-            e.preventDefault()
-            createModuleMutation.mutate()
-          }}
-          style={{ marginBottom: '1.25rem' }}
-        >
-          <div className="form-row">
-            <label className="form-field">
-              <span className="form-field__label">Module title</span>
-              <input value={moduleTitle} onChange={(e) => setModuleTitle(e.target.value)} />
-            </label>
-            <label className="form-field">
-              <span className="form-field__label">Description</span>
-              <input value={moduleDescription} onChange={(e) => setModuleDescription(e.target.value)} />
-            </label>
+        {enrollmentsQuery.isError ? (
+          <div className="message message--error" role="alert">
+            {getErrorMessage(enrollmentsQuery.error)}
           </div>
-          <div className="btn-row">
-            <button className="btn" disabled={!moduleTitle || createModuleMutation.isPending} type="submit">
-              {createModuleMutation.isPending ? 'Adding...' : 'Add module'}
-            </button>
-          </div>
-        </form>
+        ) : null}
 
-        {createModuleMutation.isError ? <StatusMsg type="error" text={getErrorMessage(createModuleMutation.error)} /> : null}
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Enrollment</th>
+                <th>Student ID</th>
+                <th>Status</th>
+                <th>Enrolled on</th>
+              </tr>
+            </thead>
+            <tbody>
+              {enrollments.map((enrollment) => (
+                <tr key={enrollment.id}>
+                  <td className="mono">{enrollment.id.slice(0, 8)}</td>
+                  <td className="mono">{enrollment.student_id.slice(0, 8)}</td>
+                  <td>
+                    <span className={`badge ${
+                      enrollment.status === 'COMPLETED' ? 'badge--success'
+                      : enrollment.status === 'CANCELLED' ? 'badge--danger'
+                      : 'badge--accent'
+                    }`}>
+                      {enrollment.status === 'ENROLLED' ? 'Active' : enrollment.status.charAt(0) + enrollment.status.slice(1).toLowerCase()}
+                    </span>
+                  </td>
+                  <td>{new Date(enrollment.enrolled_at).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
-        {modules.map((mod, index) => (
-          <div className="module-panel" key={mod.id}>
-            <div className="module-panel__header">
-              <div>
-                <div className="module-panel__title">{mod.title}</div>
-                <div className="module-panel__order">Position {mod.sort_order}</div>
-              </div>
-              <div className="btn-row">
-                <button className="btn btn--sm" disabled={index === 0 || reorderModulesMutation.isPending} onClick={() => moveModule(mod.id, -1)} type="button">
-                  Up
-                </button>
-                <button className="btn btn--sm" disabled={index === modules.length - 1 || reorderModulesMutation.isPending} onClick={() => moveModule(mod.id, 1)} type="button">
-                  Down
-                </button>
-              </div>
-            </div>
-
-            <div className="form-stack">
-              <label className="form-field">
-                <span className="form-field__label">Title</span>
-                <input
-                  value={moduleEdits[mod.id]?.title ?? mod.title}
-                  onChange={(e) =>
-                    setModuleEdits((c) => ({
-                      ...c,
-                      [mod.id]: {
-                        ...(c[mod.id] ?? { title: mod.title, description: mod.description, is_required: mod.is_required }),
-                        title: e.target.value,
-                      },
-                    }))
-                  }
-                />
-              </label>
-
-              <label className="form-field">
-                <span className="form-field__label">Description</span>
-                <textarea
-                  value={moduleEdits[mod.id]?.description ?? mod.description ?? ''}
-                  onChange={(e) =>
-                    setModuleEdits((c) => ({
-                      ...c,
-                      [mod.id]: {
-                        ...(c[mod.id] ?? { title: mod.title, description: mod.description, is_required: mod.is_required }),
-                        description: e.target.value,
-                      },
-                    }))
-                  }
-                />
-              </label>
-
-              <label className="form-field--inline form-field">
-                <input
-                  checked={moduleEdits[mod.id]?.is_required ?? mod.is_required}
-                  onChange={(e) =>
-                    setModuleEdits((c) => ({
-                      ...c,
-                      [mod.id]: {
-                        ...(c[mod.id] ?? { title: mod.title, description: mod.description, is_required: mod.is_required }),
-                        is_required: e.target.checked,
-                      },
-                    }))
-                  }
-                  type="checkbox"
-                />
-                <span className="form-field__label">Required for completion</span>
-              </label>
-            </div>
-
-            <div className="btn-row" style={{ marginTop: '0.75rem' }}>
-              <button className="btn btn--sm" onClick={() => updateModuleMutation.mutate(mod.id)} type="button">
-                Save module
-              </button>
-              <button className="btn btn--sm btn--ghost" onClick={() => deleteModuleMutation.mutate(mod.id)} type="button">
-                Delete
-              </button>
-            </div>
-
-            <ModuleAssetManager courseId={courseId} module={mod} />
-          </div>
-        ))}
-
-        {!modulesQuery.isLoading && !modules.length ? (
-          <div className="empty">No modules yet. Add one above to start building the course.</div>
+        {!enrollmentsQuery.isLoading && !enrollments.length ? (
+          <div className="empty">No students enrolled{status ? ` with status ${status}` : ''}.</div>
         ) : null}
       </div>
     </div>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -18,6 +19,13 @@ from educorp_common.telemetry import instrument_sqlalchemy
 logger = structlog.get_logger()
 
 
+async def _start_consumer(consumer: NotificationKafkaConsumer) -> None:
+    try:
+        await consumer.start()
+    except Exception as exc:
+        logger.warning("Notification Kafka consumer unavailable", exc_info=exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan: startup and shutdown."""
@@ -32,15 +40,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     session_factory = create_session_factory(engine)
     consumer: NotificationKafkaConsumer | None = None
+    consumer_task: asyncio.Task[None] | None = None
     try:
         consumer = NotificationKafkaConsumer(session_factory)
-        await consumer.start()
+        consumer_task = asyncio.create_task(_start_consumer(consumer))
     except Exception as exc:
         logger.warning("Notification Kafka consumer unavailable", exc_info=exc)
         consumer = None
 
     yield
 
+    if consumer_task is not None:
+        consumer_task.cancel()
+        try:
+            await consumer_task
+        except asyncio.CancelledError:
+            pass
     if consumer is not None:
         await consumer.stop()
     await engine.dispose()

@@ -1,4 +1,4 @@
-import { zodResolver } from '@hookform/resolvers/zod'
+﻿import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -45,7 +45,7 @@ type VerifyValues = z.infer<typeof verifySchema>
 type ForgotPasswordValues = z.infer<typeof forgotPasswordSchema>
 type ResetPasswordValues = z.infer<typeof resetPasswordSchema>
 
-function AuthLayout({
+function AuthCard({
   title,
   subtitle,
   children,
@@ -55,15 +55,13 @@ function AuthLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <div className="auth-card__header">
-          <div className="auth-card__logo">EduCorp</div>
-          <h1 className="auth-card__title">{title}</h1>
-          <p className="auth-card__subtitle">{subtitle}</p>
-        </div>
-        {children}
+    <div className="auth-card">
+      <div className="auth-card__header">
+        <div className="auth-card__logo">EduCorp</div>
+        <h1 className="auth-card__title">{title}</h1>
+        <p className="auth-card__subtitle">{subtitle}</p>
       </div>
+      {children}
     </div>
   )
 }
@@ -109,7 +107,7 @@ export function LoginPage() {
   })
 
   return (
-    <AuthLayout title="Sign in" subtitle="Access your EduCorp account.">
+    <AuthCard title="Sign in" subtitle="Access your EduCorp account.">
       <form className="form-stack" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
         <Field label="Email" error={form.formState.errors.email?.message}>
           <input autoComplete="email" {...form.register('email')} />
@@ -139,7 +137,7 @@ export function LoginPage() {
           <Link to="/verify-email">Verify email</Link>
         </div>
       </form>
-    </AuthLayout>
+    </AuthCard>
   )
 }
 
@@ -174,7 +172,7 @@ export function RegisterPage() {
   })
 
   return (
-    <AuthLayout title="Create account" subtitle="Register a new student account.">
+    <AuthCard title="Create account" subtitle="Register a new student account.">
       <form className="form-stack" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
         <div className="form-row">
           <Field label="First name" error={form.formState.errors.firstName?.message}>
@@ -217,7 +215,7 @@ export function RegisterPage() {
           <Link to="/login">Already have an account?</Link>
         </div>
       </form>
-    </AuthLayout>
+    </AuthCard>
   )
 }
 
@@ -232,7 +230,7 @@ export function VerifyEmailPage() {
   })
 
   return (
-    <AuthLayout title="Verify email" subtitle="Paste the token from your verification email.">
+    <AuthCard title="Verify email" subtitle="Paste the token from your verification email.">
       <form className="form-stack" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
         <Field label="Verification token" error={form.formState.errors.token?.message}>
           <textarea {...form.register('token')} />
@@ -255,7 +253,7 @@ export function VerifyEmailPage() {
           </Link>
         </div>
       </form>
-    </AuthLayout>
+    </AuthCard>
   )
 }
 
@@ -269,7 +267,7 @@ export function ForgotPasswordPage() {
   })
 
   return (
-    <AuthLayout title="Reset password" subtitle="Enter your email to receive a reset token.">
+    <AuthCard title="Reset password" subtitle="Enter your email to receive a reset token.">
       <form className="form-stack" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
         <Field label="Email" error={form.formState.errors.email?.message}>
           <input autoComplete="email" {...form.register('email')} />
@@ -296,7 +294,7 @@ export function ForgotPasswordPage() {
           <Link to="/login">Back to sign in</Link>
         </div>
       </form>
-    </AuthLayout>
+    </AuthCard>
   )
 }
 
@@ -315,7 +313,7 @@ export function ResetPasswordPage() {
   })
 
   return (
-    <AuthLayout title="Set new password" subtitle="Enter the reset token and your new password.">
+    <AuthCard title="Set new password" subtitle="Enter the reset token and your new password.">
       <form className="form-stack" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
         <Field label="Reset token" error={form.formState.errors.token?.message}>
           <textarea {...form.register('token')} />
@@ -342,6 +340,6 @@ export function ResetPasswordPage() {
           </Link>
         </div>
       </form>
-    </AuthLayout>
+    </AuthCard>
   )
 }

@@ -4,12 +4,16 @@ import asyncio
 import contextlib
 import json
 
+import structlog
+
 from aiokafka import AIOKafkaProducer
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.models.outbox import OutboxEvent
 from educorp_common.outbox import OutboxRelay
+
+logger = structlog.get_logger()
 
 
 class EnrollmentOutboxRelay:
@@ -36,15 +40,21 @@ class EnrollmentOutboxRelay:
     async def _run(self) -> None:
         assert self._producer is not None
         while not self._stopped.is_set():
-            async with self._session_factory() as session:
-                relay = OutboxRelay(session, OutboxEvent)
-                published = await relay.publish_batch(
-                    publisher=lambda event: self._publish(event),
-                    batch_size=100,
-                )
-                await session.commit()
-                if not published:
-                    await asyncio.sleep(settings.relay_poll_interval_seconds)
+            try:
+                async with self._session_factory() as session:
+                    relay = OutboxRelay(session, OutboxEvent)
+                    published = await relay.publish_batch(
+                        publisher=lambda event: self._publish(event),
+                        batch_size=100,
+                    )
+                    await session.commit()
+                    if published:
+                        logger.info("Enrollment outbox published", count=len(published))
+                    else:
+                        await asyncio.sleep(settings.relay_poll_interval_seconds)
+            except Exception as exc:
+                logger.warning("Enrollment outbox relay failed", exc_info=exc)
+                await asyncio.sleep(settings.relay_poll_interval_seconds)
 
     async def _publish(self, event) -> None:
         assert self._producer is not None
