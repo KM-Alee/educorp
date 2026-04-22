@@ -18,7 +18,7 @@ from app.dependencies import (
 )
 from app.schemas.course import CourseCreate, CourseListItem, CourseOut, CourseUpdate
 from app.schemas.draft import DraftContentDocument, DraftContentUpdate, DraftValidationResult
-from app.schemas.internal import CourseEnrollmentContext
+from app.schemas.internal import CourseEnrollmentContext, CourseOwnershipOut
 from app.schemas.publishing import ActivateCourseVersionRequest, PublishVersionResponse
 from app.services.course_service import CourseService
 from app.services.draft_content_service import DraftContentService
@@ -26,7 +26,12 @@ from app.services.draft_validation_service import DraftValidationService
 from app.services.publishing_client import PublishingClient
 from educorp_common.errors import ValidationError
 from educorp_common.middleware.correlation import get_correlation_id
-from educorp_common.schemas.responses import Pagination, PaginatedResponse, ResponseMeta, SuccessResponse
+from educorp_common.schemas.responses import (
+    Pagination,
+    PaginatedResponse,
+    ResponseMeta,
+    SuccessResponse,
+)
 
 router = APIRouter(tags=["courses"])
 
@@ -268,6 +273,20 @@ async def get_course_enrollment_context(
 ) -> SuccessResponse[CourseEnrollmentContext]:
     svc = CourseService(session)
     result = await svc.get_enrollment_context(course_id=course_id)
+    return SuccessResponse(data=result, meta=_meta())
+
+
+@router.get(
+    "/internal/{course_id}/ownership",
+    response_model=SuccessResponse[CourseOwnershipOut],
+)
+async def get_course_ownership(
+    course_id: UUID,
+    _: None = Depends(require_internal_service),
+    session: AsyncSession = Depends(get_session),
+) -> SuccessResponse[CourseOwnershipOut]:
+    svc = CourseService(session)
+    result = await svc.get_course_ownership(course_id=course_id)
     return SuccessResponse(data=result, meta=_meta())
 
 

@@ -252,7 +252,7 @@ function Run-Fmt {
 }
 
 function Run-Seed {
-    & docker compose exec auth-service python -m scripts.seed
+    & uv run python scripts/seed_data.py
 }
 
 function Open-Shell {

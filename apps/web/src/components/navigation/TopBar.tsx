@@ -18,7 +18,7 @@ export function TopBar({ session, children }: TopBarProps) {
       {children}
       <div className="topbar__search">
         <Search size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--black-faint)', pointerEvents: 'none' }} />
-        <input type="text" placeholder="Search courses, enrollments..." readOnly onClick={() => navigate('/app/search')} />
+        <input type="text" placeholder="Search courses..." readOnly onClick={() => navigate('/app/search')} />
       </div>
       <div className="topbar__spacer" />
       <div className="topbar__actions">

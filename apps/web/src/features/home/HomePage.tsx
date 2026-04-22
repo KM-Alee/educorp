@@ -87,8 +87,8 @@ export function HomePage() {
           <div className="lp-hero__role-sep" />
           <div className="lp-hero__role">
             <Award size={16} />
-            <strong>Organisations</strong>
-            <span>— Track teams, manage access, own analytics</span>
+            <strong>Admins</strong>
+            <span>— Govern users, publishing, and platform operations</span>
           </div>
         </div>
       </section>

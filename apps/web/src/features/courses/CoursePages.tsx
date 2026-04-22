@@ -70,6 +70,9 @@ const defaultCourseInput: CourseCreateInput = {
   difficulty: 'beginner',
   estimated_duration: 'PT4H',
   tags: [],
+  thumbnail_url: '',
+  is_public_preview: false,
+  prerequisites: [],
 }
 
 const defaultDraftContent = {
@@ -128,8 +131,12 @@ function StatusMsg({ type, text }: { type: 'success' | 'error'; text: string }) 
 }
 
 function CourseListItem({ course }: { course: CourseListItem }) {
+  const destination = course.visibility === 'DRAFT'
+    ? `/app/courses/${course.id}`
+    : `/app/catalog/${course.id}`
+
   return (
-    <Link className="course-item" to={`/app/courses/${course.id}`}>
+    <Link className="course-item" to={destination}>
       <div className="course-item__info">
         <div className="course-item__title">{course.title}</div>
         <div className="course-item__meta">
@@ -159,11 +166,10 @@ export function CourseWorkspacePage() {
     queryFn: () =>
       listCourses({
         page: 1,
-        page_size: 20,
+        page_size: 50,
         search,
         category,
         difficulty,
-        visibility: 'DRAFT',
       }),
   })
 
@@ -177,14 +183,95 @@ export function CourseWorkspacePage() {
     },
   })
 
+  const allCourses = coursesQuery.data?.data ?? []
+  const draftCourses = allCourses.filter((c) => c.visibility === 'DRAFT')
+  const publishedCourses = allCourses.filter((c) => c.visibility === 'PUBLISHED')
+
   return (
     <div className="page-stack">
       <div className="page-header">
-        <h1 className="page-header__title">Courses</h1>
-        <p className="page-header__description">Create and manage draft courses.</p>
+        <h1 className="page-header__title">My Courses</h1>
+        <p className="page-header__description">Author drafts, manage content, and publish to learners.</p>
       </div>
 
-      <div className="page-columns--wide page-columns">
+      <div className="page-columns">
+        {/* Left: Course library */}
+        <div className="flex-col gap-6">
+          {/* Filter bar */}
+          <div className="card card--subtle" style={{ padding: 'var(--space-4)' }}>
+            <div className="filter-bar" style={{ marginBottom: 0 }}>
+              <label className="form-field">
+                <span className="form-field__label">Search</span>
+                <input value={search} onChange={(e) => setSearch(e.target.value)} />
+              </label>
+              <label className="form-field">
+                <span className="form-field__label">Category</span>
+                <input value={category} onChange={(e) => setCategory(e.target.value)} />
+              </label>
+              <label className="form-field">
+                <span className="form-field__label">Difficulty</span>
+                <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}>
+                  <option value="">All</option>
+                  <option value="beginner">Beginner</option>
+                  <option value="intermediate">Intermediate</option>
+                  <option value="advanced">Advanced</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          {coursesQuery.isError ? (
+            <StatusMsg type="error" text={getErrorMessage(coursesQuery.error)} />
+          ) : null}
+
+          {/* Draft courses section */}
+          {draftCourses.length > 0 ? (
+            <div className="course-workspace-section">
+              <div className="course-workspace-section__header">
+                <h3 className="course-workspace-section__title">
+                  <span className="badge badge--warning">DRAFT</span>
+                  Drafts
+                  <span className="course-workspace-section__count">{draftCourses.length}</span>
+                </h3>
+                <p className="course-workspace-section__desc">In-progress courses awaiting publishing.</p>
+              </div>
+              <div className="course-list">
+                {draftCourses.map((course) => (
+                  <CourseListItem course={course} key={course.id} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Published courses section */}
+          {publishedCourses.length > 0 ? (
+            <div className="course-workspace-section">
+              <div className="course-workspace-section__header">
+                <h3 className="course-workspace-section__title">
+                  <span className="badge badge--success">LIVE</span>
+                  Published
+                  <span className="course-workspace-section__count">{publishedCourses.length}</span>
+                </h3>
+                <p className="course-workspace-section__desc">Live courses visible to enrolled students.</p>
+              </div>
+              <div className="course-list">
+                {publishedCourses.map((course) => (
+                  <CourseListItem course={course} key={course.id} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {!coursesQuery.isLoading && allCourses.length === 0 ? (
+            <div className="empty">
+              <div className="empty__icon"><BookOpen size={36} /></div>
+              <div className="empty__title">No courses yet</div>
+              <div className="empty__description">Create your first draft to get started.</div>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Right: Create new course */}
         <div className="card">
           <div className="card__header">
             <h2 className="card__title">New draft</h2>
@@ -256,6 +343,43 @@ export function CourseWorkspacePage() {
               </label>
             </div>
 
+            <div className="form-row">
+              <label className="form-field">
+                <span className="form-field__label">Max capacity</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={draft.max_capacity ?? ''}
+                  onChange={(e) => setDraft((c) => ({ ...c, max_capacity: e.target.value ? Number(e.target.value) : undefined }))}
+                />
+              </label>
+              <label className="form-field">
+                <span className="form-field__label">Thumbnail URL</span>
+                <input
+                  value={draft.thumbnail_url ?? ''}
+                  onChange={(e) => setDraft((c) => ({ ...c, thumbnail_url: e.target.value }))}
+                />
+              </label>
+            </div>
+
+            <label className="form-field">
+              <span className="form-field__label">Prerequisites (course IDs)</span>
+              <input
+                placeholder="uuid-1, uuid-2"
+                value={(draft.prerequisites ?? []).join(', ')}
+                onChange={(e) => setDraft((c) => ({ ...c, prerequisites: tagsFromInput(e.target.value) }))}
+              />
+            </label>
+
+            <label className="form-field--inline form-field">
+              <input
+                type="checkbox"
+                checked={Boolean(draft.is_public_preview)}
+                onChange={(e) => setDraft((c) => ({ ...c, is_public_preview: e.target.checked }))}
+              />
+              <span className="form-field__label">Enable public preview</span>
+            </label>
+
             <label className="form-field">
               <span className="form-field__label">Tags</span>
               <input
@@ -275,47 +399,6 @@ export function CourseWorkspacePage() {
               </button>
             </div>
           </form>
-        </div>
-
-        <div className="card">
-          <div className="card__header">
-            <h2 className="card__title">Draft courses</h2>
-            <p className="card__description">Filter and open existing drafts.</p>
-          </div>
-
-          <div className="filter-bar" style={{ marginBottom: '0.75rem' }}>
-            <label className="form-field">
-              <span className="form-field__label">Search</span>
-              <input value={search} onChange={(e) => setSearch(e.target.value)} />
-            </label>
-            <label className="form-field">
-              <span className="form-field__label">Category</span>
-              <input value={category} onChange={(e) => setCategory(e.target.value)} />
-            </label>
-            <label className="form-field">
-              <span className="form-field__label">Difficulty</span>
-              <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}>
-                <option value="">All</option>
-                <option value="beginner">Beginner</option>
-                <option value="intermediate">Intermediate</option>
-                <option value="advanced">Advanced</option>
-              </select>
-            </label>
-          </div>
-
-          {coursesQuery.isError ? (
-            <StatusMsg type="error" text={getErrorMessage(coursesQuery.error)} />
-          ) : null}
-
-          <div className="course-list">
-            {coursesQuery.data?.data.map((course) => (
-              <CourseListItem course={course} key={course.id} />
-            ))}
-          </div>
-
-          {!coursesQuery.isLoading && !coursesQuery.data?.data.length ? (
-            <div className="empty">No drafts match the current filter.</div>
-          ) : null}
         </div>
       </div>
     </div>
@@ -690,7 +773,10 @@ export function CourseEditorPage() {
       difficulty: courseQuery.data?.difficulty ?? defaultCourseInput.difficulty,
       estimated_duration: courseQuery.data?.estimated_duration ?? defaultCourseInput.estimated_duration,
       tags: courseQuery.data?.tags ?? defaultCourseInput.tags,
+      thumbnail_url: courseQuery.data?.thumbnail_url ?? defaultCourseInput.thumbnail_url,
+      is_public_preview: courseQuery.data?.is_public_preview ?? defaultCourseInput.is_public_preview,
       max_capacity: courseQuery.data?.max_capacity ?? undefined,
+      prerequisites: courseQuery.data?.prerequisites ?? defaultCourseInput.prerequisites,
     }
   ), [courseQuery.data])
 
@@ -1003,6 +1089,43 @@ export function CourseEditorPage() {
                     setCourseTagsState({ courseId, value: e.target.value, dirty: true })
                   }
                 />
+              </label>
+
+              <div className="form-row">
+                <label className="form-field">
+                  <span className="form-field__label">Max capacity</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={courseForm.max_capacity ?? ''}
+                    onChange={(e) => updateCourseForm('max_capacity', e.target.value ? Number(e.target.value) : undefined)}
+                  />
+                </label>
+                <label className="form-field">
+                  <span className="form-field__label">Thumbnail URL</span>
+                  <input
+                    value={courseForm.thumbnail_url ?? ''}
+                    onChange={(e) => updateCourseForm('thumbnail_url', e.target.value)}
+                  />
+                </label>
+              </div>
+
+              <label className="form-field">
+                <span className="form-field__label">Prerequisites (course IDs)</span>
+                <input
+                  placeholder="uuid-1, uuid-2"
+                  value={(courseForm.prerequisites ?? []).join(', ')}
+                  onChange={(e) => updateCourseForm('prerequisites', tagsFromInput(e.target.value))}
+                />
+              </label>
+
+              <label className="form-field--inline form-field">
+                <input
+                  checked={Boolean(courseForm.is_public_preview)}
+                  onChange={(e) => updateCourseForm('is_public_preview', e.target.checked)}
+                  type="checkbox"
+                />
+                <span className="form-field__label">Enable public preview</span>
               </label>
 
               {updateCourseMutation.isError ? <StatusMsg type="error" text={getErrorMessage(updateCourseMutation.error)} /> : null}
@@ -1518,7 +1641,7 @@ export function InstructorEnrollmentsPage() {
                       : enrollment.status === 'CANCELLED' ? 'badge--danger'
                       : 'badge--accent'
                     }`}>
-                      {enrollment.status === 'ENROLLED' ? 'Active' : enrollment.status.charAt(0) + enrollment.status.slice(1).toLowerCase()}
+                      {enrollment.status}
                     </span>
                   </td>
                   <td>{new Date(enrollment.enrolled_at).toLocaleDateString()}</td>

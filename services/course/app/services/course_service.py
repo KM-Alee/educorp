@@ -11,7 +11,7 @@ from app.repositories.asset_repository import AssetRepository
 from app.repositories.course_repository import CourseRepository
 from app.repositories.module_repository import ModuleRepository
 from app.schemas.course import CourseCreate, CourseOut, CourseUpdate, CourseListItem, ModuleOut
-from app.schemas.internal import CourseEnrollmentContext, CourseEnrollmentModule
+from app.schemas.internal import CourseEnrollmentContext, CourseEnrollmentModule, CourseOwnershipOut
 from app.schemas.publishing import PublishManifest, PublishManifestAsset, PublishManifestModule
 from app.services.slug_service import SlugService
 from educorp_common.errors import ConflictError, ForbiddenError, NotFoundError, ValidationError
@@ -262,6 +262,10 @@ class CourseService:
                 for module in modules
             ],
         )
+
+    async def get_course_ownership(self, *, course_id: UUID) -> CourseOwnershipOut:
+        course = await self._get_or_404(course_id)
+        return CourseOwnershipOut(course_id=course.id, instructor_id=course.instructor_id)
 
     # ---- helpers ----
 

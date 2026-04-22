@@ -12,8 +12,11 @@ import {
   ShieldAlert,
   CheckCircle2,
   XCircle,
-  Clock,
   BookOpen,
+  GraduationCap,
+  TrendingUp,
+  Bot,
+  Calendar,
 } from 'lucide-react'
 
 import {
@@ -23,6 +26,7 @@ import {
   listAdminAuditLog,
   listAdminDlq,
   listAdminWorkflows,
+  listCourses,
   listInstructorApplications,
   listAllEnrollments,
   replayAdminDlqMessage,
@@ -312,72 +316,153 @@ export function AdminAnalyticsPage() {
     queryFn: () => getPlatformAnalytics({ from_date: fromDate, to_date: toDate }),
   })
 
+  const completionRatio =
+    analyticsQuery.data && analyticsQuery.data.enrollments > 0
+      ? (analyticsQuery.data.completions / analyticsQuery.data.enrollments) * 100
+      : null
+
   return (
     <div className="page-stack">
       <div className="page-header">
+        <div className="page-header__badge">Analytics</div>
         <h1 className="page-header__title">Platform analytics</h1>
         <p className="page-header__description">
           Enrollment trends, course completion rates, and platform health metrics.
         </p>
       </div>
 
-      <div className="card">
-        <div className="filter-bar" style={{ marginBottom: '1rem' }}>
+      {/* Date range filter */}
+      <div className="analytics-date-filter">
+        <div className="analytics-date-filter__icon">
+          <Calendar size={18} />
+        </div>
+        <div className="analytics-date-filter__fields">
           <label className="form-field">
             <span className="form-field__label">From</span>
             <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
           </label>
+          <span className="analytics-date-filter__sep">→</span>
           <label className="form-field">
             <span className="form-field__label">To</span>
             <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
           </label>
         </div>
-
-        {analyticsQuery.isError ? (
-          <div className="message message--error" role="alert">
-            {getErrorMessage(analyticsQuery.error)}
-          </div>
+        {analyticsQuery.isLoading ? (
+          <span className="analytics-date-filter__loading">Loading…</span>
         ) : null}
+      </div>
 
-        <div className="stat-row">
-          <div className="stat-item">
-            <div className="stat-item__label">Total users</div>
-            <div className="stat-item__value">{analyticsQuery.data?.total_students ?? '--'}</div>
-          </div>
-          <div className="stat-item">
-            <div className="stat-item__label">Enrollments</div>
-            <div className="stat-item__value">{analyticsQuery.data?.enrollments ?? '--'}</div>
-          </div>
-          <div className="stat-item">
-            <div className="stat-item__label">Completions</div>
-            <div className="stat-item__value">{analyticsQuery.data?.completions ?? '--'}</div>
-          </div>
-          <div className="stat-item">
-            <div className="stat-item__label">Published courses</div>
-            <div className="stat-item__value">{analyticsQuery.data?.published_courses ?? '--'}</div>
-          </div>
-          <div className="stat-item">
-            <div className="stat-item__label">AI usage</div>
-            <div className="stat-item__value">{analyticsQuery.data?.ai_usage ?? '--'}</div>
-          </div>
+      {analyticsQuery.isError ? (
+        <div className="message message--error" role="alert">
+          {getErrorMessage(analyticsQuery.error)}
         </div>
-        <div className="table-wrap">
-          <table className="table">
-            <tbody>
-              <tr>
-                <th>Window</th>
-                <td>{fromDate} to {toDate}</td>
-              </tr>
-              <tr>
-                <th>Completion ratio</th>
-                <td>
-                  {analyticsQuery.data && analyticsQuery.data.enrollments > 0
-                    ? `${((analyticsQuery.data.completions / analyticsQuery.data.enrollments) * 100).toFixed(1)}%`
-                    : '--'}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+      ) : null}
+
+      {/* Main stat row */}
+      <div className="stat-row">
+        <div className="stat-item">
+          <div className="stat-item__icon"><Users size={18} /></div>
+          <div className="stat-item__label">Total users</div>
+          <div className="stat-item__value">{analyticsQuery.data?.total_students ?? '—'}</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-item__icon"><ClipboardList size={18} /></div>
+          <div className="stat-item__label">Enrollments</div>
+          <div className="stat-item__value">{analyticsQuery.data?.enrollments ?? '—'}</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-item__icon"><CheckCircle2 size={18} /></div>
+          <div className="stat-item__label">Completions</div>
+          <div className="stat-item__value">{analyticsQuery.data?.completions ?? '—'}</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-item__icon"><BookOpen size={18} /></div>
+          <div className="stat-item__label">Published courses</div>
+          <div className="stat-item__value">{analyticsQuery.data?.published_courses ?? '—'}</div>
+        </div>
+        <div className="stat-item">
+          <div className="stat-item__icon"><Bot size={18} /></div>
+          <div className="stat-item__label">AI usage</div>
+          <div className="stat-item__value">{analyticsQuery.data?.ai_usage ?? '—'}</div>
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      <div className="page-columns page-columns--wide">
+        <div className="card">
+          <div className="card__header-row">
+            <div>
+              <h2 className="card__title">
+                <TrendingUp size={18} style={{ marginRight: 6, verticalAlign: -3 }} />
+                Completion rate
+              </h2>
+              <p className="card__description">Completions as a percentage of total enrollments in the period.</p>
+            </div>
+          </div>
+          {completionRatio !== null ? (
+            <>
+              <div style={{ fontSize: 48, fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--black)', marginBottom: 'var(--space-3)' }}>
+                {completionRatio.toFixed(1)}%
+              </div>
+              <div className="progress-bar">
+                <div
+                  className="progress-bar__fill progress-bar__fill--success"
+                  style={{ width: `${Math.min(completionRatio, 100)}%` }}
+                />
+              </div>
+              <p style={{ fontSize: 13, color: 'var(--black-faint)', marginTop: 'var(--space-2)' }}>
+                {analyticsQuery.data?.completions} completions out of {analyticsQuery.data?.enrollments} enrollments
+              </p>
+            </>
+          ) : (
+            <div className="empty" style={{ padding: 'var(--space-6)' }}>No data for this period.</div>
+          )}
+        </div>
+
+        <div className="card">
+          <div className="card__header">
+            <h2 className="card__title">
+              <Calendar size={18} style={{ marginRight: 6, verticalAlign: -3 }} />
+              Period summary
+            </h2>
+            <p className="card__description">Aggregated window metrics.</p>
+          </div>
+          <div className="table-wrap">
+            <table className="table">
+              <tbody>
+                <tr>
+                  <th>Window</th>
+                  <td>{fromDate} → {toDate}</td>
+                </tr>
+                <tr>
+                  <th>Enrollments</th>
+                  <td>{analyticsQuery.data?.enrollments ?? '—'}</td>
+                </tr>
+                <tr>
+                  <th>Completions</th>
+                  <td>{analyticsQuery.data?.completions ?? '—'}</td>
+                </tr>
+                <tr>
+                  <th>Completion ratio</th>
+                  <td>
+                    {completionRatio !== null ? (
+                      <span style={{ fontWeight: 600, color: completionRatio >= 50 ? 'var(--success)' : 'var(--warning)' }}>
+                        {completionRatio.toFixed(1)}%
+                      </span>
+                    ) : '—'}
+                  </td>
+                </tr>
+                <tr>
+                  <th>Published courses</th>
+                  <td>{analyticsQuery.data?.published_courses ?? '—'}</td>
+                </tr>
+                <tr>
+                  <th>AI usage</th>
+                  <td>{analyticsQuery.data?.ai_usage ?? '—'}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -695,23 +780,37 @@ export function AdminDLQPage() {
 
 /* ─── Admin Dashboard ─────────────────────────────────────────────────── */
 export function AdminDashboardPage() {
-  const today = new Date().toISOString().slice(0, 10)
-  const analyticsQuery = useQuery({
-    queryKey: ['admin-platform-analytics', today, today],
-    queryFn: () => getPlatformAnalytics({ from_date: today, to_date: today }),
+  const usersQuery = useQuery({
+    queryKey: ['admin-users-dashboard-count'],
+    queryFn: () => listAdminUsers({}),
+  })
+  const publishedCoursesQuery = useQuery({
+    queryKey: ['admin-published-courses-dashboard-count'],
+    queryFn: () =>
+      listCourses({
+        page: 1,
+        page_size: 1,
+        visibility: 'PUBLISHED',
+      }),
   })
   const applicationsQuery = useQuery({
     queryKey: ['instructor-applications', 'PENDING'],
     queryFn: () => listInstructorApplications('PENDING'),
   })
+  const totalEnrollmentsQuery = useQuery({
+    queryKey: ['admin-enrollments-dashboard-count'],
+    queryFn: () => listAllEnrollments({ page_size: 1 }),
+  })
   const enrollmentsQuery = useQuery({
-    queryKey: ['admin-enrollments', 'PENDING'],
-    queryFn: () => listAllEnrollments({ status: 'PENDING', page_size: 5 }),
+    queryKey: ['admin-enrollments', 'ENROLLED'],
+    queryFn: () => listAllEnrollments({ status: 'ENROLLED', page_size: 1 }),
   })
 
-  const stats = analyticsQuery.data
-  const pendingApps = applicationsQuery.data?.data.length ?? 0
-  const pendingEnrollments = enrollmentsQuery.data?.data.length ?? 0
+  const totalUsers = usersQuery.data?.pagination.total_items ?? '--'
+  const totalEnrollments = totalEnrollmentsQuery.data?.pagination.total_items ?? '--'
+  const publishedCourses = publishedCoursesQuery.data?.pagination.total_items ?? '--'
+  const pendingApps = applicationsQuery.data?.pagination.total_items ?? 0
+  const activeEnrollments = enrollmentsQuery.data?.pagination.total_items ?? 0
 
   return (
     <div className="page-stack">
@@ -730,23 +829,23 @@ export function AdminDashboardPage() {
       <div className="stat-row">
         <div className="stat-item stat-item--dark">
           <div className="stat-item__label">Total users</div>
-          <div className="stat-item__value">{stats?.total_students ?? '--'}</div>
+          <div className="stat-item__value">{totalUsers}</div>
         </div>
         <div className="stat-item stat-item--dark">
           <div className="stat-item__label">Enrollments</div>
-          <div className="stat-item__value">{stats?.enrollments ?? '--'}</div>
+          <div className="stat-item__value">{totalEnrollments}</div>
         </div>
         <div className="stat-item stat-item--dark">
           <div className="stat-item__label">Published courses</div>
-          <div className="stat-item__value">{stats?.published_courses ?? '--'}</div>
+          <div className="stat-item__value">{publishedCourses}</div>
         </div>
         <div className="stat-item stat-item--warning">
           <div className="stat-item__label">Pending applications</div>
           <div className="stat-item__value">{pendingApps}</div>
         </div>
         <div className="stat-item stat-item--warning">
-          <div className="stat-item__label">Pending enrollments</div>
-          <div className="stat-item__value">{pendingEnrollments}</div>
+          <div className="stat-item__label">Active enrollments</div>
+          <div className="stat-item__value">{activeEnrollments}</div>
         </div>
       </div>
 
@@ -762,11 +861,11 @@ export function AdminDashboardPage() {
         <Link className="admin-quick-card admin-quick-card--highlight" to="/app/admin/enrollments">
           <BookOpen size={24} />
           <div>
-            <p className="admin-quick-card__title">Enrollment approvals</p>
-            <p className="admin-quick-card__desc">Approve or reject student enrollment requests</p>
+            <p className="admin-quick-card__title">Enrollment overview</p>
+            <p className="admin-quick-card__desc">Monitor active, completed, and cancelled enrollments</p>
           </div>
-          {pendingEnrollments > 0 ? (
-            <span className="admin-quick-card__badge">{pendingEnrollments}</span>
+          {activeEnrollments > 0 ? (
+            <span className="admin-quick-card__badge">{activeEnrollments}</span>
           ) : null}
         </Link>
         <Link className="admin-quick-card admin-quick-card--highlight" to="/app/admin/instructor-applications">
@@ -812,7 +911,6 @@ export function AdminDashboardPage() {
   )
 }
 
-/* ─── Admin Enrollment Approvals ─────────────────────────────────────── */
 export function AdminEnrollmentsPage() {
   const [status, setStatus] = useState('')
 
@@ -869,12 +967,11 @@ export function AdminEnrollmentsPage() {
                   <td className="mono">{enrollment.student_id.slice(0, 8)}</td>
                   <td>
                     <span className={`badge ${
-                      enrollment.status === 'ACTIVE' ? 'badge--success'
+                      enrollment.status === 'COMPLETED' ? 'badge--success'
                       : enrollment.status === 'CANCELLED' ? 'badge--danger'
-                      : 'badge--warning'
+                      : 'badge--accent'
                     }`}>
-                      {enrollment.status === 'PENDING' ? <Clock size={11} /> : null}
-                      {enrollment.status === 'ACTIVE' ? <CheckCircle2 size={11} /> : null}
+                      {enrollment.status === 'COMPLETED' ? <CheckCircle2 size={11} /> : null}
                       {enrollment.status === 'CANCELLED' ? <XCircle size={11} /> : null}
                       {' '}{enrollment.status}
                     </span>

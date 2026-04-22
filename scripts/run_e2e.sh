@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
-cd /home/kali/proj/educorp
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
 source .venv/bin/activate
 TOKEN=$(python3 scripts/get_token.py)
 echo "Token obtained: ${TOKEN:0:30}..."

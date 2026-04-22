@@ -193,6 +193,19 @@ export function ProfilePage() {
                 <p className="card__description">Apply to become an instructor on EduCorp.</p>
               </div>
 
+              {applicationMutation.data ? (
+                <div className="meta-list" style={{ marginBottom: '1rem' }}>
+                  <div className="meta-item">
+                    <div className="meta-item__label">Latest submission</div>
+                    <div className="meta-item__value">{new Date(applicationMutation.data.created_at).toLocaleString()}</div>
+                  </div>
+                  <div className="meta-item">
+                    <div className="meta-item__label">Status</div>
+                    <div className="meta-item__value">{applicationMutation.data.status}</div>
+                  </div>
+                </div>
+              ) : null}
+
               <form
                 className="form-stack"
                 onSubmit={applicationForm.handleSubmit((values) => applicationMutation.mutate(values))}
@@ -210,7 +223,7 @@ export function ProfilePage() {
 
                 {applicationMutation.isSuccess ? (
                   <div className="message message--success" role="status">
-                    Application submitted ({applicationMutation.data.status}).
+                    Application submitted ({applicationMutation.data.status}). Check back here for the latest status.
                   </div>
                 ) : null}
 

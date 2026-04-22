@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
+import httpx
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.asset import Asset
 from app.repositories.asset_repository import AssetRepository
 from app.repositories.course_repository import CourseRepository
 from app.repositories.module_repository import ModuleRepository
 from app.services.storage_service import StorageService
+from educorp_common.middleware.correlation import get_correlation_id
 from educorp_common.errors import ForbiddenError, NotFoundError, ValidationError
 
 logger = structlog.get_logger()
@@ -73,7 +76,9 @@ class AssetService:
             asset = await self._assets.create(asset)
         except Exception:
             # Attempt to clean up the uploaded object on DB failure
-            logger.warning("DB insert failed after upload; cleaning up MinIO object", path=storage_path)
+            logger.warning(
+                "DB insert failed after upload; cleaning up MinIO object", path=storage_path
+            )
             await self._storage.delete(storage_path)
             raise
 
@@ -106,16 +111,33 @@ class AssetService:
         caller_id: UUID,
         caller_roles: list[str],
     ) -> str:
+        asset = await self.get_downloadable_asset(
+            course_id=course_id,
+            module_id=module_id,
+            asset_id=asset_id,
+            caller_id=caller_id,
+            caller_roles=caller_roles,
+        )
+        return await self._storage.presigned_url(asset.storage_path)
+
+    async def get_downloadable_asset(
+        self,
+        *,
+        course_id: UUID,
+        module_id: UUID,
+        asset_id: UUID,
+        caller_id: UUID,
+        caller_roles: list[str],
+    ) -> Asset:
         course = await self._courses.get_by_id(course_id)
         if course is None:
             raise NotFoundError("Course not found")
-        # Phase 2: allow owner or admin to download
-        if "admin" not in caller_roles and course.instructor_id != caller_id:
-            raise ForbiddenError("Access denied")
         asset = await self._assets.get_by_id(asset_id)
         if asset is None or asset.module_id != module_id:
             raise NotFoundError("Asset not found")
-        return await self._storage.presigned_url(asset.storage_path)
+        if not await self._can_download(course_id, course.instructor_id, caller_id, caller_roles):
+            raise ForbiddenError("Access denied")
+        return asset
 
     async def delete(
         self,
@@ -160,3 +182,36 @@ class AssetService:
         if "admin" in caller_roles:
             return True
         return instructor_id == caller_id
+
+    async def _can_download(
+        self,
+        course_id: UUID,
+        instructor_id: UUID,
+        caller_id: UUID,
+        caller_roles: list[str],
+    ) -> bool:
+        if "admin" in caller_roles or instructor_id == caller_id:
+            return True
+        if "student" not in caller_roles:
+            return False
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"{settings.enrollment_service_url}/internal/courses/{course_id}/students/{caller_id}/enrollment-status",
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "X-Internal-Service-Token": settings.internal_service_token,
+                    "X-Correlation-Id": get_correlation_id(),
+                },
+            )
+
+        try:
+            payload = response.json() if response.content else None
+        except ValueError:
+            payload = None
+
+        if response.is_error or not payload or "data" not in payload:
+            return False
+
+        return bool(payload["data"].get("is_enrolled"))

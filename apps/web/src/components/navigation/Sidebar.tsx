@@ -32,7 +32,11 @@ export function Sidebar({ brand, sections }: SidebarProps) {
               className={({ isActive }) =>
                 `sidebar__link${isActive ? ' active' : ''}`
               }
-              end={link.to === '/app/dashboard' || link.to === '/app/courses'}
+              end={
+                link.to === '/app/dashboard'
+                || link.to === '/app/courses'
+                || link.to === '/app/admin'
+              }
             >
               {link.icon ? <span className="sidebar__icon">{link.icon}</span> : null}
               {link.label}

@@ -34,7 +34,7 @@ function buildSidebarSections(roles: string[]) {
   const sections: Array<{ label?: string; links: Array<{ to: string; label: string; icon?: ReactNode }> }> = []
 
   // Student section
-  if (isStudent && !isInstructor) {
+  if (isStudent) {
     sections.push({
       links: [
         { to: '/app/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={ICON_SIZE} /> },
@@ -107,7 +107,7 @@ export function AppShell() {
           brand={<Link to="/app/dashboard">EduCorp</Link>}
           sections={sidebarSections}
         />
-        <div className="flex-col flex-1" style={{ minWidth: 0 }}>
+        <div className="app-content">
           <TopBar session={session} />
           <main className="app-main">
             <Outlet />

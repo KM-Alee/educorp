@@ -13,10 +13,18 @@ def normalize_question(question: str) -> str:
     return " ".join(question.lower().strip().split())
 
 
-def question_cache_key(question: str, course_id: str, version_id: str) -> str:
+def question_cache_key(
+    question: str,
+    course_id: str,
+    version_id: str,
+    module_id: str | None = None,
+    asset_id: str | None = None,
+) -> str:
     normalized = normalize_question(question)
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-    return f"cache:ai:{digest}:{course_id}:{version_id}"
+    module_scope = module_id or "*"
+    asset_scope = asset_id or "*"
+    return f"cache:ai:{digest}:{course_id}:{version_id}:{module_scope}:{asset_scope}"
 
 
 async def get_cached_response(
@@ -25,8 +33,10 @@ async def get_cached_response(
     question: str,
     course_id: str,
     version_id: str,
+    module_id: str | None = None,
+    asset_id: str | None = None,
 ) -> dict[str, Any] | None:
-    key = question_cache_key(question, course_id, version_id)
+    key = question_cache_key(question, course_id, version_id, module_id, asset_id)
     raw = await redis.get(key)
     if not raw:
         return None
@@ -42,9 +52,11 @@ async def set_cached_response(
     question: str,
     course_id: str,
     version_id: str,
+    module_id: str | None = None,
+    asset_id: str | None = None,
     payload: dict[str, Any],
     ttl_seconds: int | None = None,
 ) -> None:
-    key = question_cache_key(question, course_id, version_id)
+    key = question_cache_key(question, course_id, version_id, module_id, asset_id)
     ttl = ttl_seconds or settings.ai_cache_ttl_seconds
     await redis.setex(key, ttl, json.dumps(payload))

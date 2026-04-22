@@ -63,6 +63,7 @@ async def ask(
         course_id=payload.course_id,
         question=payload.question,
         module_id=payload.module_id,
+        asset_id=payload.asset_id,
         user_id=user_id,
         role_scope=_role_scope(current_user.get("roles", [])),
     )
@@ -84,6 +85,7 @@ async def ask_stream(
     course_id: UUID = Query(...),
     question: str = Query(..., max_length=2000),
     module_id: UUID | None = Query(default=None),
+    asset_id: UUID | None = Query(default=None),
     current_user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
     redis=Depends(get_redis),
@@ -104,6 +106,7 @@ async def ask_stream(
                 course_id=course_id,
                 question=question,
                 module_id=module_id,
+                asset_id=asset_id,
                 user_id=user_id,
                 role_scope=_role_scope(current_user.get("roles", [])),
             ):

@@ -10,6 +10,7 @@ class AskRequest(BaseModel):
     course_id: UUID
     question: str = Field(..., max_length=2000)
     module_id: UUID | None = None
+    asset_id: UUID | None = None
 
 
 class Citation(BaseModel):

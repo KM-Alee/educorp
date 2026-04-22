@@ -29,3 +29,12 @@ class CourseEnrollmentContext(BaseModel):
     max_capacity: int | None
     prerequisites: list[str]
     modules: list[CourseEnrollmentModule]
+
+
+class CourseOwnershipOut(BaseModel):
+    """Internal ownership snapshot used by downstream services."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    course_id: UUID
+    instructor_id: UUID

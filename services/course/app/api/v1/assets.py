@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile, status
+import httpx
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
+from fastapi.responses import Response
 from miniopy_async import Minio
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,11 +20,13 @@ from app.dependencies import (
 from app.schemas.asset import AssetDownload, AssetOut
 from app.services.asset_service import AssetService
 from app.services.storage_service import StorageService
-from educorp_common.errors import ValidationError
+from educorp_common.errors import EduCorpError, ValidationError
 from educorp_common.middleware.correlation import get_correlation_id
 from educorp_common.schemas.responses import ResponseMeta, SuccessResponse
 
 router = APIRouter(tags=["assets"])
+
+INLINE_ASSET_TYPES = {"pdf", "txt", "md", "vtt", "srt"}
 
 
 def _meta() -> ResponseMeta:
@@ -123,20 +127,66 @@ async def download_asset(
 ) -> SuccessResponse[AssetDownload]:
     storage = StorageService(minio_client)
     svc = AssetService(session, storage)
-    url = await svc.presigned_download(
+    asset = await svc.get_downloadable_asset(
         course_id=course_id,
         module_id=module_id,
         asset_id=asset_id,
         caller_id=UUID(current_user["id"]),
         caller_roles=current_user["roles"],
     )
+    url = await storage.presigned_url(asset.storage_path)
+    supports_inline = asset.asset_type in INLINE_ASSET_TYPES
     return SuccessResponse(
         data=AssetDownload(
             download_url=url,
+            view_url=url if supports_inline else None,
             expires_in=settings.presigned_url_ttl_seconds,
+            file_name=asset.file_name,
+            mime_type=asset.mime_type,
+            file_size=asset.file_size,
+            supports_inline=supports_inline,
         ),
         meta=_meta(),
     )
+
+
+@router.get("/{course_id}/modules/{module_id}/assets/{asset_id}/content")
+async def asset_content(
+    course_id: UUID,
+    module_id: UUID,
+    asset_id: UUID,
+    disposition: str = Query(default="inline", pattern="^(inline|attachment)$"),
+    current_user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    minio_client: Minio = Depends(get_minio),
+) -> Response:
+    storage = StorageService(minio_client)
+    svc = AssetService(session, storage)
+    asset = await svc.get_downloadable_asset(
+        course_id=course_id,
+        module_id=module_id,
+        asset_id=asset_id,
+        caller_id=UUID(current_user["id"]),
+        caller_roles=current_user["roles"],
+    )
+    url = await storage.presigned_url(asset.storage_path, public=False)
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        upstream = await client.get(url)
+
+    if upstream.is_error:
+        raise EduCorpError(
+            code="ASSET_UNAVAILABLE",
+            message="Asset content is unavailable right now.",
+            status_code=502,
+        )
+
+    encoded_name = asset.file_name.replace('"', '')
+    headers = {
+        "Content-Disposition": f'{disposition}; filename="{encoded_name}"',
+        "Cache-Control": "private, max-age=60",
+    }
+    return Response(content=upstream.content, media_type=asset.mime_type, headers=headers)
 
 
 @router.delete(

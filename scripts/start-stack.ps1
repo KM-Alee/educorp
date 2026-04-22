@@ -156,7 +156,9 @@ foreach ($svc in @("auth", "course", "enrollment", "progress", "publishing", "no
 # ── Phase 6: Seed + health ──────────────────────────────
 Write-Info "Phase 6/6: Seeding data..."
 & docker compose exec -T auth-service python -m scripts.seed 2>&1 | Select-Object -Last 3
-Write-Ok "Seed complete"
+Write-Ok "Auth admin seed complete"
+& uv run python scripts/seed_data.py
+Write-Ok "Seed data loaded"
 
 Write-Host ""
 Write-Info "Running health checks..."

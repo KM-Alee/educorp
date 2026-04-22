@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from educorp_common.auth.dependencies import CurrentUser, get_current_user, require_roles
+from educorp_common.auth.dependencies import CurrentUser, get_current_user, get_optional_user, require_roles
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -52,12 +52,33 @@ async def require_internal_service(
         raise HTTPException(status_code=403, detail="Forbidden")
 
 
+def require_internal_or_roles(*roles: str):
+    async def _dependency(
+        x_internal_service_token: str | None = Header(
+            default=None, alias="X-Internal-Service-Token"
+        ),
+        current_user: CurrentUser | None = Depends(get_optional_user),
+    ) -> CurrentUser | None:
+        from app.config import settings
+
+        if x_internal_service_token == settings.internal_service_token:
+            return None
+        if current_user is None:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        if not any(role in current_user["roles"] for role in roles):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        return current_user
+
+    return _dependency
+
+
 __all__ = [
     "CurrentUser",
     "get_current_user",
     "get_redis",
     "get_session",
     "require_internal_service",
+    "require_internal_or_roles",
     "require_roles",
     "set_engine",
     "set_redis",

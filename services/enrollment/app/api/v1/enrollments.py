@@ -7,8 +7,16 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import CurrentUser, get_current_user, get_redis, get_session, require_roles
+from app.dependencies import (
+    CurrentUser,
+    get_current_user,
+    get_redis,
+    get_session,
+    require_internal_or_roles,
+    require_roles,
+)
 from app.schemas.enrollment import EnrollmentCreate, EnrollmentOut, EnrollmentStatusOut
+from app.services.course_owner_client import CourseOwnerClient
 from app.services.enrollment_service import EnrollmentService
 from educorp_common.errors import ForbiddenError
 from educorp_common.middleware.correlation import get_correlation_id
@@ -147,6 +155,11 @@ async def list_course_enrollments(
     """Instructor/admin endpoint to list all enrollments for a specific course."""
     from app.repositories.enrollment_repository import EnrollmentRepository
 
+    if "admin" not in current_user["roles"]:
+        ownership = await CourseOwnerClient().get_course_ownership(course_id=course_id)
+        if ownership.get("instructor_id") != current_user["id"]:
+            raise ForbiddenError("You do not own this course")
+
     repo = EnrollmentRepository(session)
     enrollments, total = await repo.list_by_course(
         course_id=course_id,
@@ -233,6 +246,34 @@ async def enrollment_status(
         is_enrolled = enrollment.status in ("ENROLLED", "COMPLETED")
         data = EnrollmentStatusOut(
             is_enrolled=is_enrolled,
+            enrollment_id=enrollment.id,
+            status=enrollment.status,
+            progress_percent=progress_percent,
+        )
+    return SuccessResponse(data=data, meta=_meta())
+
+
+@router.get(
+    "/internal/courses/{course_id}/students/{student_id}/enrollment-status",
+    response_model=SuccessResponse[EnrollmentStatusOut],
+)
+async def internal_enrollment_status(
+    course_id: UUID,
+    student_id: UUID,
+    _: CurrentUser | None = Depends(require_internal_or_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+) -> SuccessResponse[EnrollmentStatusOut]:
+    service = EnrollmentService(session, redis)
+    enrollment, progress_percent = await service.get_enrollment_status(
+        student_id=student_id,
+        course_id=course_id,
+    )
+    if enrollment is None:
+        data = EnrollmentStatusOut(is_enrolled=False)
+    else:
+        data = EnrollmentStatusOut(
+            is_enrolled=enrollment.status in ("ENROLLED", "COMPLETED"),
             enrollment_id=enrollment.id,
             status=enrollment.status,
             progress_percent=progress_percent,

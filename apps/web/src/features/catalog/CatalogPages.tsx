@@ -5,10 +5,13 @@ import { Link } from 'react-router-dom'
 
 import { searchCourses, type CourseSearchItem } from '../../lib/api'
 import { getErrorMessage } from '../../lib/types'
+import { useSessionState } from '../../lib/session'
 
 function ResultCard({ course }: { course: CourseSearchItem }) {
+  const session = useSessionState()
+  const to = session ? `/app/catalog/${course.course_id}` : `/catalog/${course.course_id}`
   return (
-    <Link className="course-item" to={`/app/catalog/${course.course_id}`}>
+    <Link className="course-item" to={to}>
       <div className="course-item__info">
         <div className="course-item__title">{course.title}</div>
         <div className="course-item__meta">{course.short_description || 'No description'}</div>

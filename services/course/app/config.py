@@ -15,10 +15,12 @@ class Settings(BaseAppSettings):
 
     # MinIO
     minio_endpoint: str = "minio:9000"
+    minio_public_endpoint: str = "localhost:9000"
     minio_access_key: str = "educorp"
     minio_secret_key: str = "educorp_dev"
     minio_bucket: str = "course-assets"
     minio_use_ssl: bool = False
+    minio_public_use_ssl: bool = False
 
     # Upload limits
     max_asset_size_bytes: int = 50 * 1024 * 1024  # 50 MB
@@ -26,6 +28,7 @@ class Settings(BaseAppSettings):
 
     # Publishing service
     publishing_service_url: str = "http://publishing-service:8000/api/v1/publishing"
+    enrollment_service_url: str = "http://enrollment-service:8000/api/v1/enrollments"
 
     # Internal service-to-service auth
     internal_service_token: str = "change-me"

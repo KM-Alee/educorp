@@ -83,6 +83,33 @@ export interface InstructorApplication {
   created_at: string
 }
 
+export interface NotificationItem {
+  id: string
+  user_id: string
+  type: string
+  channel: string
+  title: string
+  message: string
+  is_read: boolean
+  read_at: string | null
+  created_at: string
+  metadata: Record<string, unknown>
+}
+
+export interface NotificationPreferences {
+  user_id: string
+  enrollment_confirmed_in_app: boolean
+  enrollment_confirmed_email: boolean
+  course_completed_in_app: boolean
+  course_completed_email: boolean
+  course_published_in_app: boolean
+  course_published_email: boolean
+}
+
+export interface NotificationReadAllResult {
+  updated_count: number
+}
+
 export interface PlatformAnalytics {
   from_date: string
   to_date: string
@@ -206,6 +233,8 @@ export interface CourseCreateInput {
   difficulty?: string
   estimated_duration?: string
   tags?: string[]
+  thumbnail_url?: string
+  is_public_preview?: boolean
   max_capacity?: number
   prerequisites?: string[]
 }
@@ -247,7 +276,12 @@ export interface AssetOut {
 
 export interface AssetDownload {
   download_url: string
+  view_url?: string | null
   expires_in: number
+  file_name: string
+  mime_type: string
+  file_size: number
+  supports_inline: boolean
 }
 
 export interface DraftValidationIssue {
@@ -576,6 +610,34 @@ async function requestEnvelope<T>(
   }
 
   return payload
+}
+
+async function requestResponse(
+  path: string,
+  init: RequestInit = {},
+  options: { auth?: boolean; retry?: boolean } = {},
+): Promise<Response> {
+  const session = getSession()
+  const headers = new Headers(init.headers)
+
+  if (options.auth && session?.accessToken) {
+    headers.set('Authorization', `Bearer ${session.accessToken}`)
+  }
+
+  const response = await fetch(path, { ...init, headers })
+
+  if (response.status === 401 && options.auth && options.retry !== false) {
+    const refreshed = await refreshSession()
+    if (refreshed) {
+      return requestResponse(path, init, { ...options, retry: false })
+    }
+  }
+
+  if (!response.ok) {
+    throw await toApiError(response)
+  }
+
+  return response
 }
 
 async function requestPaginated<T>(
@@ -922,6 +984,67 @@ export async function getCourse(courseId: string): Promise<CourseDetail> {
   return response.data
 }
 
+const NOTIFICATION_BASE = '/api/v1/notifications'
+
+export async function listNotifications(filters: {
+  is_read?: boolean
+  limit?: number
+} = {}): Promise<NotificationItem[]> {
+  const params = new URLSearchParams()
+  if (typeof filters.is_read === 'boolean') {
+    params.set('is_read', String(filters.is_read))
+  }
+  params.set('limit', String(filters.limit ?? 50))
+
+  const response = await requestEnvelope<NotificationItem[]>(
+    `${NOTIFICATION_BASE}/?${params.toString()}`,
+    {},
+    { auth: true },
+  )
+  return response.data
+}
+
+export async function markNotificationRead(notificationId: string): Promise<NotificationItem> {
+  const response = await requestEnvelope<NotificationItem>(
+    `${NOTIFICATION_BASE}/${notificationId}/read`,
+    { method: 'PATCH' },
+    { auth: true },
+  )
+  return response.data
+}
+
+export async function markAllNotificationsRead(): Promise<NotificationReadAllResult> {
+  const response = await requestEnvelope<NotificationReadAllResult>(
+    `${NOTIFICATION_BASE}/read-all`,
+    { method: 'POST' },
+    { auth: true },
+  )
+  return response.data
+}
+
+export async function getNotificationPreferences(): Promise<NotificationPreferences> {
+  const response = await requestEnvelope<NotificationPreferences>(
+    `${NOTIFICATION_BASE}/preferences`,
+    {},
+    { auth: true },
+  )
+  return response.data
+}
+
+export async function updateNotificationPreferences(
+  input: Partial<NotificationPreferences>,
+): Promise<NotificationPreferences> {
+  const response = await requestEnvelope<NotificationPreferences>(
+    `${NOTIFICATION_BASE}/preferences`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    },
+    { auth: true },
+  )
+  return response.data
+}
+
 export async function updateCourse(
   courseId: string,
   input: Partial<CourseCreateInput>,
@@ -1052,6 +1175,61 @@ export async function getAssetDownload(
   )
 
   return response.data
+}
+
+export function getAssetContentPath(
+  courseId: string,
+  moduleId: string,
+  assetId: string,
+  disposition: 'inline' | 'attachment' = 'inline',
+): string {
+  return `${COURSE_BASE}/${courseId}/modules/${moduleId}/assets/${assetId}/content?disposition=${disposition}`
+}
+
+function parseFilename(contentDisposition: string | null): string | null {
+  if (!contentDisposition) {
+    return null
+  }
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1])
+  }
+
+  const plainMatch = contentDisposition.match(/filename="?([^";]+)"?/i)
+  return plainMatch?.[1] ?? null
+}
+
+export async function getAssetContentText(
+  courseId: string,
+  moduleId: string,
+  assetId: string,
+): Promise<string> {
+  const response = await requestResponse(
+    getAssetContentPath(courseId, moduleId, assetId, 'inline'),
+    {},
+    { auth: true },
+  )
+  return response.text()
+}
+
+export async function getAssetContentBlob(
+  courseId: string,
+  moduleId: string,
+  assetId: string,
+  disposition: 'inline' | 'attachment' = 'attachment',
+): Promise<{ blob: Blob; fileName: string | null; contentType: string | null }> {
+  const response = await requestResponse(
+    getAssetContentPath(courseId, moduleId, assetId, disposition),
+    {},
+    { auth: true },
+  )
+
+  return {
+    blob: await response.blob(),
+    fileName: parseFilename(response.headers.get('Content-Disposition')),
+    contentType: response.headers.get('Content-Type'),
+  }
 }
 
 export async function deleteAsset(courseId: string, moduleId: string, assetId: string): Promise<void> {
@@ -1444,6 +1622,7 @@ export async function askAI(input: {
   course_id: string
   question: string
   module_id?: string | null
+  asset_id?: string | null
 }): Promise<AIAnswer> {
   const response = await requestEnvelope<AIAnswer>(
     `${AI_BASE}/ask`,
@@ -1478,6 +1657,7 @@ export async function streamAIAssistant(input: {
   course_id: string
   question: string
   module_id?: string | null
+  asset_id?: string | null
   signal: AbortSignal
   onEvent: (event: EventStreamMessage) => void
 }): Promise<void> {
@@ -1487,6 +1667,9 @@ export async function streamAIAssistant(input: {
   })
   if (input.module_id) {
     params.set('module_id', input.module_id)
+  }
+  if (input.asset_id) {
+    params.set('asset_id', input.asset_id)
   }
 
   return requestEventStream(`${AI_BASE}/ask/stream?${params.toString()}`, {

@@ -7,7 +7,7 @@
         test test-service test-coverage lint fmt \
         seed shell exec \
         clean reset debug-service smoke-phase4 smoke-phase5 smoke-phase7 \
-        load-test dep-audit \
+        load-test dep-audit build-service \
         up-service rebuild-service recreate-service
 
 COMPOSE = docker compose

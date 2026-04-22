@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID
 
 import structlog
@@ -94,14 +95,28 @@ class StorageService:
             content_type=content_type,
         )
 
-    async def presigned_url(self, storage_path: str) -> str:
+    async def presigned_url(self, storage_path: str, *, public: bool = True) -> str:
         from datetime import timedelta
 
-        return await self._client.presigned_get_object(
+        url = await self._client.presigned_get_object(
             self._bucket,
             storage_path,
             expires=timedelta(seconds=settings.presigned_url_ttl_seconds),
         )
+        if not public:
+            return url
+        return self._rewrite_public_url(url)
+
+    @staticmethod
+    def _rewrite_public_url(url: str) -> str:
+        parts = urlsplit(url)
+        public_endpoint = settings.minio_public_endpoint.strip()
+
+        if not public_endpoint or parts.netloc == public_endpoint:
+            return url
+
+        scheme = "https" if settings.minio_public_use_ssl else "http"
+        return urlunsplit((scheme, public_endpoint, parts.path, parts.query, parts.fragment))
 
     async def delete(self, storage_path: str) -> None:
         try:

@@ -156,15 +156,15 @@ class TestDownloadAsset:
         from app.config import settings
 
         app = create_app()
+        asset = _sample_asset(uuid4())
         app.dependency_overrides[get_session] = lambda: mock_session
         app.dependency_overrides[get_current_user] = _make_auth(instructor)
         app.dependency_overrides[get_minio] = lambda: mock_minio
 
         with patch("app.api.v1.assets.AssetService") as MockSvc:
             instance = MockSvc.return_value
-            instance.presigned_download = AsyncMock(
-                return_value="https://minio.test/presigned"
-            )
+            instance.get_downloadable_asset = AsyncMock(return_value=asset)
+            mock_minio.presigned_get_object = AsyncMock(return_value="http://minio:9000/course-assets/presigned")
 
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -173,8 +173,13 @@ class TestDownloadAsset:
                 )
             assert resp.status_code == 200
             body = resp.json()
-            assert body["data"]["download_url"] == "https://minio.test/presigned"
+            assert body["data"]["download_url"].startswith("http://localhost:9000/course-assets/")
+            assert body["data"]["view_url"] == body["data"]["download_url"]
             assert body["data"]["expires_in"] == settings.presigned_url_ttl_seconds
+            assert body["data"]["file_name"] == asset.file_name
+            assert body["data"]["mime_type"] == asset.mime_type
+            assert body["data"]["file_size"] == asset.file_size
+            assert body["data"]["supports_inline"] is True
 
         app.dependency_overrides.clear()
 
@@ -213,5 +218,42 @@ class TestDeleteAsset:
                 f"/api/v1/courses/{uuid4()}/modules/{uuid4()}/assets/{uuid4()}"
             )
         assert resp.status_code == 403
+
+        app.dependency_overrides.clear()
+
+
+class TestAssetContent:
+    """GET /api/v1/courses/{course_id}/modules/{module_id}/assets/{asset_id}/content"""
+
+    async def test_content_success(self, instructor, mock_session, mock_minio):
+        app = create_app()
+        asset = _sample_asset(uuid4(), file_name="lesson.md", mime_type="text/markdown", asset_type="md")
+        app.dependency_overrides[get_session] = lambda: mock_session
+        app.dependency_overrides[get_current_user] = _make_auth(instructor)
+        app.dependency_overrides[get_minio] = lambda: mock_minio
+
+        with patch("app.api.v1.assets.AssetService") as MockSvc, patch(
+            "app.api.v1.assets.httpx.AsyncClient"
+        ) as MockClient:
+            instance = MockSvc.return_value
+            instance.get_downloadable_asset = AsyncMock(return_value=asset)
+            mock_minio.presigned_get_object = AsyncMock(return_value="http://minio:9000/course-assets/raw")
+
+            client_ctx = MockClient.return_value.__aenter__.return_value
+            upstream_response = MagicMock()
+            upstream_response.is_error = False
+            upstream_response.content = b"# lesson"
+            client_ctx.get = AsyncMock(return_value=upstream_response)
+
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.get(
+                    f"/api/v1/courses/{uuid4()}/modules/{uuid4()}/assets/{uuid4()}/content"
+                )
+
+            assert resp.status_code == 200
+            assert resp.text == "# lesson"
+            assert resp.headers["content-type"].startswith("text/markdown")
+            assert resp.headers["content-disposition"].startswith("inline;")
 
         app.dependency_overrides.clear()

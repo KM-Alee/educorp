@@ -29,17 +29,13 @@ FROM python:3.12-slim AS builder
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Build dependencies only in this stage
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install tesseract in the builder stage too (pytesseract needs it at import time in some configs)
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-eng \
     libglib2.0-0 \
@@ -51,14 +47,12 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 # Install shared library first (changes less often = better cache)
 COPY shared/pyproject.toml /app/shared/pyproject.toml
 COPY shared/educorp_common/ /app/shared/educorp_common/
-RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
-    cd /app/shared && uv pip install --system .
+RUN cd /app/shared && uv pip install --system .
 
 # Install service deps (cached by pyproject.toml hash)
 ARG SERVICE_DIR
 COPY ${SERVICE_DIR}/pyproject.toml ${SERVICE_DIR}/uv.lock* /app/service/
-RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
-    cd /app/service && uv pip install --system .
+RUN cd /app/service && uv pip install --system .
 
 # Copy service code last (changes most often)
 COPY ${SERVICE_DIR}/ /app/service/
@@ -75,6 +69,10 @@ WORKDIR /app/service
 ENV PYTHONPATH="/app/shared:/app/service"
 
 RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# Ensure Prometheus multiprocess directory exists for uvicorn workers
+RUN mkdir -p /tmp/prometheus_multiproc && chown appuser:appuser /tmp/prometheus_multiproc
+
 USER appuser
 
 EXPOSE 8000
@@ -96,10 +94,13 @@ WORKDIR /app/service
 ENV PYTHONPATH="/app/shared:/app/service"
 
 # Dev tools: debugpy for remote debugging, watchfiles for fast reload
-RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    pip install debugpy watchfiles
+RUN pip install debugpy watchfiles
 
 RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# Ensure Prometheus multiprocess directory exists for uvicorn workers
+RUN mkdir -p /tmp/prometheus_multiproc && chown appuser:appuser /tmp/prometheus_multiproc
+
 USER appuser
 
 EXPOSE 8000

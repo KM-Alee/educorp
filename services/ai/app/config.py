@@ -41,14 +41,16 @@ class Settings(BaseAppSettings):
     rate_limit_instructor_per_window: int = 5
 
     # Retrieval configuration
-    retrieval_top_k: int = 8
-    relevance_threshold: float = 0.7
-    min_chunks_for_answer: int = 2
+    retrieval_top_k: int = 12
+    retrieval_candidate_pool: int = 64
+    retrieval_full_scan_limit: int = 512
+    relevance_threshold: float = 0.12
+    min_chunks_for_answer: int = 1
 
     # Token budget
-    max_input_tokens: int = 4000
+    max_input_tokens: int = 6000
     max_output_tokens: int = 1500
-    max_context_chunks: int = 10
+    max_context_chunks: int = 16
 
     # Kafka
     ai_usage_topic: str = "ai.usage"

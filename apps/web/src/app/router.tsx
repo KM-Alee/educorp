@@ -91,6 +91,7 @@ export function AppRoutes() {
       <Route element={<PublicLayout />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/catalog" element={<CatalogPage />} />
+        <Route path="/catalog/:courseId" element={<StudentCoursePage />} />
         <Route path="/search" element={<SearchPage />} />
         <Route path="/certificates/:certificateId" element={<CertificateDetailPage />} />
       </Route>
@@ -116,6 +117,7 @@ export function AppRoutes() {
           <Route path="learning" element={<LearningPage />} />
           <Route path="learning/:enrollmentId" element={<LearningEnrollmentPage />} />
           <Route path="certificates" element={<CertificatesPage />} />
+          <Route path="certificates/:certificateId" element={<CertificateDetailPage />} />
 
           {/* Shared routes */}
           <Route path="catalog" element={<CatalogPage />} />

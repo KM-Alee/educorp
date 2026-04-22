@@ -27,7 +27,12 @@ class AssetOut(BaseModel):
 
 
 class AssetDownload(BaseModel):
-    """Presigned download URL response."""
+    """Signed asset access response."""
 
     download_url: str
+    view_url: str | None = None
     expires_in: int
+    file_name: str
+    mime_type: str
+    file_size: int
+    supports_inline: bool = False
