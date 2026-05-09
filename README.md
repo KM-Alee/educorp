@@ -1,174 +1,367 @@
 # EduCorp
 
-Intelligent course delivery platform with a first-party web app and 9 FastAPI microservices communicating via REST, Kafka events, and Temporal workflows.
+EduCorp is an AI-powered learning platform. Instructors create and publish courses with AI assistance. Students enroll, track their progress, and receive verifiable certificates. Administrators manage users, review applications, and monitor the platform through built-in observability tooling.
 
-Phase 7 adds the production-readiness layer: shared tracing and metrics wiring, security headers, readiness dependency metrics, admin ops APIs for workflow/DLQ/audit visibility, provisioned Grafana dashboards, Prometheus alert rules, load-test scaffolding, and an operations smoke script.
+The system is composed of nine independent backend services, a React frontend, and a full local development stack orchestrated through Docker Compose.
 
-## Quick Start
+---
+
+## Table of Contents
+
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Repository Layout](#repository-layout)
+- [Getting Started](#getting-started)
+- [Configuration](#configuration)
+- [Developer Commands](#developer-commands)
+- [Services and Ports](#services-and-ports)
+- [Testing](#testing)
+- [Database Migrations](#database-migrations)
+- [Scripts Reference](#scripts-reference)
+- [Default Credentials](#default-credentials)
+
+---
+
+## Architecture
+
+The platform is built around nine FastAPI microservices, each with its own database schema, and a React single-page application. All services are exposed through a Traefik reverse proxy at `http://localhost` under `/api/v1/<service>`.
+
+**Backend services**
+
+| Service | Path prefix | Datastore |
+|-------------|----------------------|-----------|
+| auth | `/api/v1/auth` | PostgreSQL |
+| course | `/api/v1/courses` | PostgreSQL |
+| enrollment | `/api/v1/enrollments` | PostgreSQL |
+| progress | `/api/v1/progress` | PostgreSQL |
+| publishing | `/api/v1/publishing` | PostgreSQL |
+| notification | `/api/v1/notifications` | PostgreSQL |
+| analytics | `/api/v1/analytics` | PostgreSQL |
+| ai | `/api/v1/ai` | MongoDB, Qdrant |
+| search | `/api/v1/search` | Qdrant |
+
+**Messaging and workflow**
+
+Course publishing and AI enrichment jobs run as Temporal workflows, triggered through a RabbitMQ event bus. Domain events between services are published and consumed via Kafka.
+
+**Technology choices**
+
+| Layer | Technology |
+|-------------|------------------------------------------------------------------|
+| Frontend | React 19, TypeScript, Vite, React Query, React Router, Zod |
+| Backend | Python 3.12, FastAPI, SQLAlchemy, Alembic, Pydantic |
+| AI | OpenAI-compatible embedding and completion APIs, Qdrant |
+| Workflow | Temporal |
+| Messaging | Kafka, RabbitMQ |
+| Storage | PostgreSQL, MongoDB, Redis, MinIO, Qdrant |
+| Gateway | Traefik |
+| Observability | Prometheus, Grafana, Jaeger |
+| Tooling | uv, ruff, mypy, pytest |
+
+---
+
+## Prerequisites
+
+**Required for all workflows**
+
+- [Docker Desktop](https://docs.docker.com/get-docker/) or Docker Engine with Compose v2
+- [Python 3.12 or later](https://python.org/downloads/)
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) — the Python package manager used across the workspace
+
+**Required for frontend-only work**
+
+- Node.js 20 or later
+
+**Platform-specific**
+
+- Linux/macOS: GNU `make` (usually pre-installed)
+- Windows: PowerShell 5.1 or later (PowerShell 7 recommended)
+
+---
+
+## Repository Layout
+
+```text
+.
+├── apps/
+│   └── web/                    React frontend application
+├── services/
+│   ├── ai/                     AI assistant and enrichment service
+│   ├── analytics/              Platform and course analytics
+│   ├── auth/                   Authentication and user management
+│   ├── course/                 Course and curriculum management
+│   ├── enrollment/             Enrollment and access control
+│   ├── notification/           In-platform notification delivery
+│   ├── progress/               Progress tracking and certificates
+│   ├── publishing/             Course publishing pipeline (Temporal)
+│   └── search/                 Keyword and semantic search
+├── shared/                     Shared Python library (educorp-common)
+├── infra/
+│   ├── docker/                 Service Dockerfile
+│   ├── kafka/                  Topic initialization scripts
+│   ├── monitoring/             Prometheus and Grafana configuration
+│   ├── postgres/               Database initialization SQL
+│   ├── temporal/               Temporal namespace setup
+│   └── traefik/                Routing configuration
+├── scripts/                    Developer automation scripts
+├── tests/
+│   └── load/                   Locust load test definitions
+├── dummy-course/               Sample PDF assets for publish smoke tests
+├── docker-compose.yml          Full local stack definition
+├── Makefile                    Developer commands for Linux/macOS
+├── make.ps1                    Developer commands for Windows
+├── run-app.sh                  Linux/macOS startup entrypoint
+└── run-app.ps1                 Windows startup entrypoint
+```
+
+---
+
+## Getting Started
+
+### 1. Clone the repository
 
 ```bash
-# One-command setup (Linux/macOS)
-./scripts/dev-setup.sh
-
-# Or manually:
-cp .env.example .env
-docker compose up -d
-
-# Frontend (Phase 2 web app)
-cd apps/web
-npm install
-npm run dev
+git clone https://github.com/KM-Alee/educorp.git
+cd educorp
 ```
+
+### 2. Install Python dependencies
+
+```bash
+uv sync
+```
+
+### 3. Start the stack
+
+**Linux or macOS**
+
+```bash
+./run-app.sh
+```
+
+**Windows**
 
 ```powershell
-# One-command setup (Windows PowerShell)
-powershell -ExecutionPolicy Bypass -File .\scripts\dev-setup.ps1
+.\run-app.ps1
 ```
 
-## Services
+The startup script runs in six phases:
 
-| Service | Port | API Prefix | Domain |
-|---------|------|------------|--------|
-| auth | 8001 | `/api/v1/auth` | Users, JWT, RBAC |
-| course | 8002 | `/api/v1/courses` | Course authoring |
-| enrollment | 8003 | `/api/v1/enrollments` | Enrollment management |
-| progress | 8004 | `/api/v1/progress` | Progress & certificates |
-| publishing | 8005 | `/api/v1/publishing` | Temporal publishing pipeline |
-| ai | 8006 | `/api/v1/ai` | RAG Q&A, instructor tools |
-| search | 8007 | `/api/v1/search` | Catalog & semantic search |
-| notification | 8008 | `/api/v1/notifications` | Email & in-app notifications |
-| analytics | 8009 | `/api/v1/analytics` | Event aggregation & reporting |
+1. Checks that Docker is available and running
+2. Copies `.env.example` to `.env` if no `.env` file exists
+3. Starts core infrastructure (PostgreSQL, MongoDB, Redis, Qdrant, MinIO, Traefik)
+4. Starts messaging services (Kafka, RabbitMQ)
+5. Starts the Temporal workflow engine
+6. Starts all nine application services, runs migrations, and seeds baseline data
 
-All services are routed through **Traefik** on port 80.
+Once complete, a health summary is printed with the status of each service.
 
-## Frontend
+### 4. Access the application
 
-The first-party learner/admin web app lives in `apps/web` and is developed in parallel with the backend phases.
+Open `http://localhost:5173` in your browser. Sign in with the seeded admin account (see [Default Credentials](#default-credentials)).
 
-- Phase 1 scope: registration, login, email verification, password reset, profile, admin user management, instructor application review
-- Phase 2 scope: course draft creation, module CRUD and reordering, asset upload/download/delete, draft validation, Mongo-backed draft content editing
-- Design direction: warm editorial surfaces, restrained depth, and utilitarian auth flows adapted from the `cursor-inspo.md` brief without copying proprietary assets or adding decorative gradients/glow
-- API integration: the web app talks directly to the Traefik-routed APIs under `/api/v1/*`
+---
 
-## Infrastructure UIs
+## Configuration
 
-| Tool | URL | Credentials |
-|------|-----|-------------|
-| Traefik | http://localhost:8081 | — |
-| Grafana | http://localhost:3000 | admin / admin |
-| Temporal | http://localhost:8088 | — |
-| RabbitMQ | http://localhost:15672 | educorp / educorp_dev |
-| MinIO | http://localhost:9001 | educorp / educorp_dev |
-| Jaeger | http://localhost:16686 | — |
+All runtime configuration is read from environment variables. A fully annotated template is provided at `.env.example`. On first startup the template is copied automatically.
 
-## Phase 7 Operations
+**Variables that must be changed for production**
 
-Observability and operational surfaces are now provisioned for local verification:
+| Variable | Description |
+|----------------------|----------------------------------------------|
+| `SECRET_KEY` | JWT signing key |
+| `POSTGRES_PASSWORD` | PostgreSQL password |
+| `MONGO_PASSWORD` | MongoDB password |
+| `REDIS_PASSWORD` | Redis password |
+| `NANOGPT_API_KEY` | LLM provider API key |
+| `OPENAI_API_KEY` | Embedding provider API key |
+| `MINIO_SECRET_KEY` | Object storage secret |
 
-- Prometheus scrapes every service `/metrics` endpoint and loads `infra/monitoring/prometheus/alerts.yml`
-- Grafana provisions dashboards from `infra/monitoring/grafana/dashboards/`
-- Jaeger receives OTLP traces on `4317`
-- Admin ops routes are available under `/api/v1/admin/*` for audit log, workflows, and DLQ inspection
+**AI provider mode**
 
-Recommended verification flow:
+The AI service supports two modes, controlled by `AI_PROVIDER_MODE`:
+
+- `fake` — returns deterministic stub responses with no external calls. Use this for local development and CI when API keys are not available.
+- `live` — calls the configured LLM and embedding endpoints. Requires valid `LLM_API_KEY` and `EMBEDDING_API_KEY` values.
+
+---
+
+## Developer Commands
+
+Both `Makefile` and `make.ps1` expose the same commands. Run `make help` or `.\make.ps1 help` to see the full list.
+
+### Stack lifecycle
+
+| Action | Linux/macOS | Windows |
+|----------------------------------|-----------------------------------|--------------------------------------|
+| Start core infrastructure only | `make up` | `.\make.ps1 up` |
+| Full orchestrated startup | `make start` | `.\make.ps1 start` |
+| Start a specific profile | `make up-messaging` | `.\make.ps1 up-messaging` |
+| Stop everything | `make down` | `.\make.ps1 down` |
+| Show container status | `make ps` | `.\make.ps1 ps` |
+| Check service health | `make health` | `.\make.ps1 health` |
+| Rebuild all images | `make build` | `.\make.ps1 build` |
+| Rebuild one service | `make rebuild-service SERVICE=ai` | `.\make.ps1 rebuild-service -Service ai` |
+| Tail logs (all services) | `make logs` | `.\make.ps1 logs` |
+| Tail logs (one service) | `make logs SERVICE=auth` | `.\make.ps1 logs -Service auth` |
+| Open shell in container | `make shell SERVICE=auth` | `.\make.ps1 shell -Service auth` |
+| Full reset (clean + rebuild) | `make reset` | `.\make.ps1 reset` |
+
+### Docker Compose profiles
+
+| Profile | Services included |
+|-----------------|--------------------------------------|
+| _(default)_ | Core infrastructure + Traefik |
+| `messaging` | + Kafka, RabbitMQ, Schema Registry |
+| `workflow` | + Temporal |
+| `app` | + All nine application services |
+| `observability` | + Prometheus, Grafana, Jaeger |
+| `full` | Everything |
+
+### Code quality
 
 ```bash
-make up-full
-make seed
-make smoke-phase4
-make smoke-phase5
-make smoke-phase7
-```
+# Lint (ruff + mypy)
+make lint
 
-Load and dependency audit helpers:
+# Auto-format
+make fmt
 
-```bash
-make load-test USERS=20 SPAWN_RATE=4 RUN_TIME=2m
+# Dependency vulnerability audit
 make dep-audit
 ```
 
-## Development Commands
+### Frontend development
 
 ```bash
-make up              # Start all services
-make down            # Stop all services
-make ps              # Show container status
-make logs            # Tail logs (SERVICE=auth for specific)
-make build           # Build all service images
-make migrate         # Run all Alembic migrations
-make test            # Run all tests
-make lint            # Run ruff + mypy
-make kafka-topics    # Create Kafka topics
-make kafka-list      # List Kafka topics
-make seed            # Seed development data
-make smoke-phase4    # Journey B smoke: enroll -> progress -> certificate
-make smoke-phase5    # Journey C smoke: AI ask + instructor job
-make smoke-phase7    # Admin ops + observability smoke
-make load-test       # Locust load run against local gateway
-make dep-audit       # pip-audit for shared + all services
-make clean           # Remove containers + volumes
-make reset           # Full reset: clean + build + up + migrate + seed
-
-# Frontend workspace
-npm --prefix apps/web install
-npm --prefix apps/web run dev
-npm --prefix apps/web run test
-npm --prefix apps/web run build
+cd apps/web
+npm install
+npm run dev        # Vite dev server at http://localhost:5173
+npm run build      # Production build
+npm run lint       # ESLint
+npm test           # Vitest
 ```
 
-## Project Structure
+---
 
-```
-educorp/
-├── AGENTS.md                    # Project guidelines for AI assistants
-├── apps/
-│   └── web/                     # First-party React/Vite frontend
-├── docker-compose.yml           # Full stack definition
-├── Makefile                     # Developer commands
-├── pyproject.toml               # Workspace config (ruff, mypy)
-├── .env.example                 # Environment template
-├── shared/educorp_common/       # Shared Python library
-│   ├── config/                  #   Base settings
-│   ├── database/                #   SQLAlchemy engine, base models
-│   ├── schemas/                 #   Response envelopes
-│   ├── middleware/              #   Correlation ID, logging
-│   ├── auth/                    #   JWT dependencies (stub)
-│   └── errors.py                #   Exception classes + handlers
-├── services/<name>/             # 9 FastAPI services
-│   ├── app/
-│   │   ├── main.py              #   App factory + lifespan
-│   │   ├── config.py            #   Pydantic Settings
-│   │   ├── dependencies.py      #   FastAPI Depends()
-│   │   ├── api/v1/              #   Route handlers
-│   │   ├── models/              #   SQLAlchemy models
-│   │   ├── schemas/             #   Pydantic schemas
-│   │   ├── services/            #   Business logic
-│   │   ├── repositories/        #   Data access
-│   │   └── events/              #   Kafka producers/consumers
-│   ├── alembic/                 #   Migrations (DB services)
-│   └── tests/                   #   Unit + integration tests
-├── infra/
-│   ├── docker/                  #   Shared Dockerfile
-│   ├── postgres/                #   Schema init SQL
-│   ├── kafka/                   #   Topic creation script
-│   ├── temporal/                #   Namespace setup
-│   ├── traefik/                 #   Gateway config
-│   └── monitoring/              #   Prometheus, Grafana
-├── scripts/                     #   Dev utilities
-└── docs/                        #   Architecture & design docs
+## Services and Ports
+
+All API traffic in local development flows through Traefik at `http://localhost`. Direct container ports are available for database tooling and administrative UIs.
+
+| Service | URL | Notes |
+|-----------------------|-----------------------------------|-------------------------------|
+| Frontend (Vite) | http://localhost:5173 | Dev server only |
+| API Gateway | http://localhost | Traefik reverse proxy |
+| Traefik Dashboard | http://localhost:8081 | Routing and service status |
+| Grafana | http://localhost:3000 | Login: `admin` / `admin` |
+| Temporal UI | http://localhost:8088 | Workflow visibility |
+| RabbitMQ Management | http://localhost:15672 | Login: `educorp` / `educorp_dev` |
+| MinIO Console | http://localhost:9001 | Login: `educorp` / `educorp_dev` |
+| Jaeger | http://localhost:16686 | Distributed trace explorer |
+| Prometheus | http://localhost:9090 | Raw metrics |
+| Qdrant | http://localhost:6333 | Vector database REST API |
+| Schema Registry | http://localhost:8082 | Kafka schema management |
+| PostgreSQL | localhost:15432 | `educorp` / `educorp_dev` |
+
+---
+
+## Testing
+
+### Unit and integration tests
+
+Tests for each service run via `uv` against a lightweight test configuration (SQLite in-memory for database services, mocked external calls for AI).
+
+```bash
+# Run tests for a specific service
+make test-service SERVICE=auth
+
+# Run tests for all supported services
+make test
+
+# Run with coverage
+make test-coverage SERVICE=auth
 ```
 
-## Documentation
+Individual service tests can also be run directly:
 
-See the [docs/](docs/) directory for detailed design documentation.
+```bash
+uv run --project services/auth pytest services/auth/tests -v --tb=short
+```
 
-- `docs/ARCHITECTURE.md` — service and frontend architecture
-- `docs/FRONTEND.md` — web app structure, UI system, and route plan
-- `docs/PHASES.md` — backend and frontend delivery phases
-- `docs/PHASE3_IMPLEMENTATION_PLAN.md` — concrete implementation sequence for publishing and search
-- `docs/OBSERVABILITY.md` — metrics, traces, dashboards, alerts, and runbook guidance
-- `docs/SECURITY.md` — auth, RBAC, input validation, rate limiting, and hardening notes
+### Smoke tests
 
+Smoke tests validate end-to-end flows against a running local stack.
 
-#swagger
-http://localhost/api/v1/ai/docs
+```bash
+make smoke-phase4    # Enrollment, progress, and certificate flow
+make smoke-phase5    # AI service flows
+make smoke-phase7    # Admin operations and observability
+```
+
+For the full course publish flow using the bundled sample assets:
+
+```bash
+./scripts/run_e2e.sh                                   # Linux/macOS
+uv run python scripts/phase3_dummy_course_publish.py --token <TOKEN>  # any platform
+```
+
+### Load tests
+
+```bash
+make load-test
+# Defaults: 20 users, spawn rate 4/s, duration 2 minutes
+# Override: USERS=50 SPAWN_RATE=10 RUN_TIME=5m make load-test
+```
+
+---
+
+## Database Migrations
+
+Migrations are managed per-service with Alembic and run automatically on startup. To manage them manually:
+
+```bash
+# Run all pending migrations
+make migrate
+
+# Run migrations for one service
+make migrate-service SERVICE=course
+
+# Generate a new migration
+make migrate-create SERVICE=course MSG="add estimated duration column"
+```
+
+---
+
+## Scripts Reference
+
+| Script | Purpose |
+|------------------------------------------|------------------------------------------------------|
+| `scripts/start-stack.sh` | Orchestrated Linux/macOS stack startup |
+| `scripts/start-stack.ps1` | Orchestrated Windows stack startup |
+| `scripts/dev-setup.sh` | Full Linux/macOS development bootstrap |
+| `scripts/dev-setup.ps1` | Full Windows development bootstrap |
+| `scripts/seed_data.py` | Seed demo users and courses through the live API |
+| `scripts/get_token.py` | Fetch a local admin JWT token for manual testing |
+| `scripts/run_e2e.sh` | Wrapper for the phase 3 end-to-end publish flow |
+| `scripts/phase1_auth_smoke.py` | Auth service smoke checks |
+| `scripts/phase3_dummy_course_publish.py` | End-to-end dummy-course publish and activate flow |
+| `scripts/phase4_smoke.py` | Enrollment, progress, and certificate smoke test |
+| `scripts/phase5_smoke.py` | AI assistant and enrichment smoke test |
+| `scripts/phase7_ops_smoke.py` | Admin and observability smoke test |
+| `scripts/e2e_ai_test.py` | Extended AI pipeline end-to-end test |
+| `scripts/test_semantic.py` | Semantic search validation helper |
+
+---
+
+## Default Credentials
+
+These credentials are created during the seed phase and apply to a local development stack only.
+
+| Account | Email | Password | Role |
+|-----------|--------------------------|----------------|-----------|
+| Admin | admin@educorp.dev | AdminPass123! | Admin |
+| Instructor | instructor@educorp.dev | InstructorPass123! | Instructor |
+| Student | student@educorp.dev | StudentPass123! | Student |
+
+Do not use these credentials in any environment exposed to a network.

@@ -45,7 +45,8 @@ Thumbs.db
 
 # Logs
 *.log
-*.bak
+*.bak*
+build_log.txt
 
 # Prometheus multiproc
 /tmp/prometheus_multiproc/
