@@ -175,6 +175,10 @@ services:
       - ./infra/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./infra/traefik/dynamic:/etc/traefik/dynamic:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      TRAEFIK_CORS_ORIGIN_1: ${TRAEFIK_CORS_ORIGIN_1:-http://localhost}
+      TRAEFIK_CORS_ORIGIN_2: ${TRAEFIK_CORS_ORIGIN_2:-http://localhost:3001}
+      TRAEFIK_CORS_ORIGIN_3: ${TRAEFIK_CORS_ORIGIN_3:-http://localhost:5173}
     healthcheck:
       test: ["CMD", "traefik", "healthcheck"]
       interval: 15s

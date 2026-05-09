@@ -11,6 +11,7 @@ import redis.asyncio as aioredis
 
 from app.config import settings
 from educorp_common.errors import EduCorpError
+from educorp_common.inter_service_http import inter_service_request
 
 logger = logging.getLogger(__name__)
 
@@ -142,20 +143,21 @@ class EmbeddingService:
         if self._api_key and self._api_key != "change-me":
             headers["Authorization"] = f"Bearer {self._api_key}"
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(
+        try:
+            response = await inter_service_request(
+                "POST",
                 f"{self._base_url}/embeddings",
-                json={"model": self._model, "input": batch},
+                timeout=60.0,
                 headers=headers,
+                json={"model": self._model, "input": batch},
             )
-
-        if response.is_error:
-            logger.error("Embedding API error %s: %s", response.status_code, response.text[:300])
+        except httpx.HTTPStatusError as exc:
+            logger.error("Embedding API error %s: %s", exc.response.status_code, exc.response.text[:300])
             raise EduCorpError(
                 code="AI_PROVIDER_ERROR",
-                message=f"Embedding provider error: HTTP {response.status_code}",
+                message=f"Embedding provider error: HTTP {exc.response.status_code}",
                 status_code=502,
-            )
+            ) from exc
 
         payload = response.json()
         data = sorted(payload.get("data", []), key=lambda item: item.get("index", 0))

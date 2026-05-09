@@ -4,17 +4,18 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import structlog
+from aiokafka import AIOKafkaProducer
 from fastapi import FastAPI
 from motor.motor_asyncio import AsyncIOMotorClient
 from qdrant_client import QdrantClient
 from redis.asyncio import Redis
-from aiokafka import AIOKafkaProducer
 
 from app.api.v1 import router as v1_router
 from app.config import settings
 from educorp_common.app_setup import configure_http_app
 from educorp_common.database.session import create_async_engine, create_session_factory
 from educorp_common.errors import register_exception_handlers
+from educorp_common.kafka_json_schema_sr import KafkaJsonSchemaPublisher
 from educorp_common.middleware.logging import setup_logging
 from educorp_common.telemetry import instrument_sqlalchemy
 
@@ -31,6 +32,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.dependencies import (
         set_engine,
         set_kafka_producer,
+        set_kafka_schema_publisher,
         set_mongo,
         set_qdrant,
         set_redis,
@@ -50,13 +52,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     set_qdrant(qdrant)
 
     kafka_producer: AIOKafkaProducer | None = None
+    kafka_schema_publisher: KafkaJsonSchemaPublisher | None = None
     try:
         kafka_producer = AIOKafkaProducer(bootstrap_servers=settings.kafka_bootstrap_servers)
         await kafka_producer.start()
         set_kafka_producer(kafka_producer)
+        if settings.kafka_schema_registry_url:
+            kafka_schema_publisher = KafkaJsonSchemaPublisher(settings.kafka_schema_registry_url)
+            await kafka_schema_publisher.ensure_topic(settings.ai_usage_topic)
+            set_kafka_schema_publisher(kafka_schema_publisher)
     except Exception as exc:
         logger.warning("Kafka producer unavailable", exc_info=exc)
         kafka_producer = None
+        kafka_schema_publisher = None
+        set_kafka_producer(None)
+        set_kafka_schema_publisher(None)
 
     try:
         from app.services.instructor_service import InstructorService
@@ -76,6 +86,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
+    set_kafka_schema_publisher(None)
+    if kafka_schema_publisher is not None:
+        await kafka_schema_publisher.aclose()
     if kafka_producer is not None:
         await kafka_producer.stop()
     mongo_client.close()

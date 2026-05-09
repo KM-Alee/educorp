@@ -9,6 +9,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from educorp_common.auth.dependencies import CurrentUser, get_current_user, require_roles
+from educorp_common.kafka_json_schema_sr import KafkaJsonSchemaPublisher
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -17,6 +18,7 @@ _mongo_client: AsyncIOMotorClient | None = None  # type: ignore[type-arg]
 _mongo_db: AsyncIOMotorDatabase | None = None  # type: ignore[type-arg]
 _qdrant: QdrantClient | None = None
 _kafka_producer: AIOKafkaProducer | None = None
+_kafka_schema_publisher: KafkaJsonSchemaPublisher | None = None
 
 
 def set_engine(engine: AsyncEngine) -> None:
@@ -47,10 +49,19 @@ def set_qdrant(client: QdrantClient) -> None:
     _qdrant = client
 
 
-def set_kafka_producer(producer: AIOKafkaProducer) -> None:
+def set_kafka_producer(producer: AIOKafkaProducer | None) -> None:
     """Set the Kafka producer (called during lifespan startup)."""
     global _kafka_producer
     _kafka_producer = producer
+
+
+def set_kafka_schema_publisher(publisher: KafkaJsonSchemaPublisher | None) -> None:
+    global _kafka_schema_publisher
+    _kafka_schema_publisher = publisher
+
+
+def get_kafka_schema_publisher() -> KafkaJsonSchemaPublisher | None:
+    return _kafka_schema_publisher
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
@@ -91,6 +102,7 @@ __all__ = [
     "CurrentUser",
     "get_current_user",
     "get_kafka_producer",
+    "get_kafka_schema_publisher",
     "get_mongo_db",
     "get_qdrant",
     "get_redis",
@@ -98,6 +110,7 @@ __all__ = [
     "require_roles",
     "set_engine",
     "set_kafka_producer",
+    "set_kafka_schema_publisher",
     "set_mongo",
     "set_qdrant",
     "set_redis",

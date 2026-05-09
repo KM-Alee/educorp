@@ -6,6 +6,7 @@ import httpx
 
 from app.config import settings
 from educorp_common.errors import EduCorpError
+from educorp_common.inter_service_http import inter_service_request
 from educorp_common.middleware.correlation import get_correlation_id
 
 
@@ -41,13 +42,13 @@ class InternalOpsClient:
         return await self._get(f"{self._enrollment}/internal/admin/audit-log", params=params)
 
     async def _get(self, url: str, *, params: dict[str, str] | None = None) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.get(url, headers=self._headers(), params=params)
+        response = await inter_service_request(
+            "GET", url, timeout=15.0, headers=self._headers(), params=params
+        )
         return _parse_response(response)
 
     async def _post(self, url: str) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(url, headers=self._headers())
+        response = await inter_service_request("POST", url, timeout=15.0, headers=self._headers())
         return _parse_response(response)
 
     @staticmethod

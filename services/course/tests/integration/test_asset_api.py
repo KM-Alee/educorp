@@ -233,17 +233,16 @@ class TestAssetContent:
         app.dependency_overrides[get_minio] = lambda: mock_minio
 
         with patch("app.api.v1.assets.AssetService") as MockSvc, patch(
-            "app.api.v1.assets.httpx.AsyncClient"
-        ) as MockClient:
+            "app.api.v1.assets.inter_service_request", new_callable=AsyncMock
+        ) as mock_fetch:
             instance = MockSvc.return_value
             instance.get_downloadable_asset = AsyncMock(return_value=asset)
             mock_minio.presigned_get_object = AsyncMock(return_value="http://minio:9000/course-assets/raw")
 
-            client_ctx = MockClient.return_value.__aenter__.return_value
             upstream_response = MagicMock()
             upstream_response.is_error = False
             upstream_response.content = b"# lesson"
-            client_ctx.get = AsyncMock(return_value=upstream_response)
+            mock_fetch.return_value = upstream_response
 
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:

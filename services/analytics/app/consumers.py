@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 
 import structlog
 from aiokafka import AIOKafkaConsumer
@@ -13,6 +12,7 @@ from app.models.dead_letter_message import DeadLetterMessage
 from app.repositories.dead_letter_repository import DeadLetterRepository
 from app.services.analytics_service import AnalyticsService
 from educorp_common.events import DomainEvent, normalize_event
+from educorp_common.kafka_json_schema_sr import decode_kafka_json_value
 from educorp_common.telemetry import record_domain_event
 
 logger = structlog.get_logger()
@@ -38,7 +38,7 @@ class AnalyticsKafkaConsumer:
             group_id=settings.analytics_consumer_group,
             enable_auto_commit=False,
             auto_offset_reset="earliest",
-            value_deserializer=lambda value: json.loads(value.decode("utf-8")),
+            value_deserializer=lambda value: decode_kafka_json_value(value),
         )
         await self._consumer.start()
         self._task = asyncio.create_task(self._run())

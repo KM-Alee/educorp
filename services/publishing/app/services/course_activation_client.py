@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
-import httpx
 import structlog
 
 from app.config import settings
 from educorp_common.errors import EduCorpError
+from educorp_common.inter_service_http import inter_service_request
 from educorp_common.middleware.correlation import get_correlation_id
 
 logger = structlog.get_logger()
@@ -31,8 +31,13 @@ class CourseActivationClient:
         """Tell the course service to activate this version as current."""
         url = f"{self._course_url}/courses/internal/{course_id}/activate-version"
         payload = {"version_id": str(version_id)}
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(url, json=payload, headers=self._headers())
+        response = await inter_service_request(
+            "POST",
+            url,
+            timeout=10.0,
+            headers=self._headers(),
+            json=payload,
+        )
         if response.is_error:
             body: dict = {}
             try:
@@ -51,8 +56,12 @@ class CourseActivationClient:
         """Notify search service that a course has been activated (best-effort)."""
         url = f"{self._search_url}/search/internal/activate/{course_id}"
         try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                response = await client.post(url, headers=self._headers())
+            response = await inter_service_request(
+                "POST",
+                url,
+                timeout=5.0,
+                headers=self._headers(),
+            )
             if response.is_error:
                 logger.warning(
                     "Search sync notification failed",

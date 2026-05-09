@@ -82,6 +82,13 @@ class ValidationError(EduCorpError):
         )
 
 
+class CircuitBreakerOpenError(EduCorpError):
+    """Raised when a downstream circuit breaker is open."""
+
+    def __init__(self, message: str = "Upstream service temporarily unavailable") -> None:
+        super().__init__(code="UPSTREAM_CIRCUIT_OPEN", message=message, status_code=503)
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Register exception handlers for all EduCorp error types."""
 

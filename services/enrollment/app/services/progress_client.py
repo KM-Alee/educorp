@@ -8,6 +8,7 @@ import httpx
 
 from app.config import settings
 from educorp_common.errors import EduCorpError
+from educorp_common.inter_service_http import inter_service_request
 from educorp_common.middleware.correlation import get_correlation_id
 
 
@@ -35,22 +36,24 @@ class ProgressClient:
             "modules": course_context["modules"],
             "enrolled_at": enrolled_at.isoformat(),
         }
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(
-                f"{self._base_url}/internal/init",
-                json=payload,
-                headers=self._headers(),
-            )
+        response = await inter_service_request(
+            "POST",
+            f"{self._base_url}/internal/init",
+            timeout=10.0,
+            headers=self._headers(),
+            json=payload,
+        )
         parsed = _parse_payload(response)
         if response.is_error or parsed is None or "data" not in parsed:
             _raise_remote_error(response, parsed, default_code="PROGRESS_INIT_ERROR")
 
     async def get_progress_summary(self, *, enrollment_id: UUID) -> dict[str, Any] | None:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(
-                f"{self._base_url}/internal/enrollments/{enrollment_id}/summary",
-                headers=self._headers(),
-            )
+        response = await inter_service_request(
+            "GET",
+            f"{self._base_url}/internal/enrollments/{enrollment_id}/summary",
+            timeout=10.0,
+            headers=self._headers(),
+        )
         if response.status_code == 404:
             return None
         parsed = _parse_payload(response)
@@ -59,11 +62,12 @@ class ProgressClient:
         return dict(parsed["data"])
 
     async def cancel_progress(self, *, enrollment_id: UUID) -> None:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(
-                f"{self._base_url}/internal/enrollments/{enrollment_id}/cancel",
-                headers=self._headers(),
-            )
+        response = await inter_service_request(
+            "POST",
+            f"{self._base_url}/internal/enrollments/{enrollment_id}/cancel",
+            timeout=10.0,
+            headers=self._headers(),
+        )
         parsed = _parse_payload(response)
         if response.is_error or parsed is None or "data" not in parsed:
             _raise_remote_error(response, parsed, default_code="PROGRESS_CANCEL_ERROR")

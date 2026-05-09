@@ -8,6 +8,7 @@ import httpx
 
 from app.config import settings
 from educorp_common.errors import EduCorpError
+from educorp_common.inter_service_http import inter_service_request
 from educorp_common.middleware.correlation import get_correlation_id
 
 
@@ -18,12 +19,13 @@ class EnrollmentClient:
         self._base_url = (base_url or settings.enrollment_service_url).rstrip("/")
 
     async def mark_completed(self, *, enrollment_id: UUID, completed_at: datetime) -> None:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(
-                f"{self._base_url}/internal/enrollments/{enrollment_id}/complete",
-                json={"completed_at": completed_at.isoformat()},
-                headers=self._headers(),
-            )
+        response = await inter_service_request(
+            "POST",
+            f"{self._base_url}/internal/enrollments/{enrollment_id}/complete",
+            timeout=10.0,
+            headers=self._headers(),
+            json={"completed_at": completed_at.isoformat()},
+        )
         payload = _parse_payload(response)
         if response.is_error or payload is None or "data" not in payload:
             _raise_remote_error(response, payload, default_code="ENROLLMENT_SYNC_ERROR")

@@ -4,6 +4,7 @@ import httpx
 
 from app.config import settings
 from educorp_common.errors import EduCorpError
+from educorp_common.inter_service_http import inter_service_request
 
 
 class EmbeddingService:
@@ -22,12 +23,20 @@ class EmbeddingService:
         if self._api_key and self._api_key != "change-me":
             headers["Authorization"] = f"Bearer {self._api_key}"
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
+        try:
+            response = await inter_service_request(
+                "POST",
                 f"{self._base_url}/embeddings",
-                json={"model": self._model, "input": [query]},
+                timeout=30.0,
                 headers=headers,
+                json={"model": self._model, "input": [query]},
             )
+        except httpx.HTTPStatusError as exc:
+            raise EduCorpError(
+                code="AI_PROVIDER_ERROR",
+                message=f"Embedding provider error: HTTP {exc.response.status_code}",
+                status_code=502,
+            ) from exc
 
         if response.is_error:
             raise EduCorpError(

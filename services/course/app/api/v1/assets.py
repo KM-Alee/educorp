@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
-import httpx
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from fastapi.responses import Response
 from miniopy_async import Minio
@@ -21,6 +20,7 @@ from app.schemas.asset import AssetDownload, AssetOut
 from app.services.asset_service import AssetService
 from app.services.storage_service import StorageService
 from educorp_common.errors import EduCorpError, ValidationError
+from educorp_common.inter_service_http import inter_service_request
 from educorp_common.middleware.correlation import get_correlation_id
 from educorp_common.schemas.responses import ResponseMeta, SuccessResponse
 
@@ -171,8 +171,7 @@ async def asset_content(
     )
     url = await storage.presigned_url(asset.storage_path, public=False)
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        upstream = await client.get(url)
+    upstream = await inter_service_request("GET", url, timeout=30.0)
 
     if upstream.is_error:
         raise EduCorpError(

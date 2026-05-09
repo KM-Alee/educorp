@@ -7,6 +7,7 @@ http:
         - web
       middlewares:
         - cors
+        - rate-limit
 
     courses:
       rule: "PathPrefix(`/api/v1/courses`)"
@@ -15,6 +16,7 @@ http:
         - web
       middlewares:
         - cors
+        - rate-limit
 
     enrollments:
       rule: "PathPrefix(`/api/v1/enrollments`)"
@@ -23,6 +25,7 @@ http:
         - web
       middlewares:
         - cors
+        - rate-limit
 
     progress:
       rule: "PathPrefix(`/api/v1/progress`)"
@@ -31,6 +34,7 @@ http:
         - web
       middlewares:
         - cors
+        - rate-limit
 
     publishing:
       rule: "PathPrefix(`/api/v1/publishing`)"
@@ -39,6 +43,7 @@ http:
         - web
       middlewares:
         - cors
+        - rate-limit
 
     ai:
       rule: "PathPrefix(`/api/v1/ai`)"
@@ -47,6 +52,7 @@ http:
         - web
       middlewares:
         - cors
+        - rate-limit
 
     search:
       rule: "PathPrefix(`/api/v1/search`)"
@@ -55,6 +61,7 @@ http:
         - web
       middlewares:
         - cors
+        - rate-limit
 
     notifications:
       rule: "PathPrefix(`/api/v1/notifications`)"
@@ -63,6 +70,7 @@ http:
         - web
       middlewares:
         - cors
+        - rate-limit
 
     analytics:
       rule: "PathPrefix(`/api/v1/analytics`)"
@@ -71,6 +79,7 @@ http:
         - web
       middlewares:
         - cors
+        - rate-limit
 
   services:
     auth-service:
@@ -122,9 +131,9 @@ http:
     cors:
       headers:
         accessControlAllowOriginList:
-          - "http://localhost"
-          - "http://localhost:3001"
-          - "http://localhost:5173"
+          - "${TRAEFIK_CORS_ORIGIN_1:-http://localhost}"
+          - "${TRAEFIK_CORS_ORIGIN_2:-http://localhost:3001}"
+          - "${TRAEFIK_CORS_ORIGIN_3:-http://localhost:5173}"
         accessControlAllowMethods:
           - "GET"
           - "POST"

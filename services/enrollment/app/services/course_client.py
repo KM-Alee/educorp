@@ -7,6 +7,7 @@ import httpx
 
 from app.config import settings
 from educorp_common.errors import EduCorpError
+from educorp_common.inter_service_http import inter_service_request
 from educorp_common.middleware.correlation import get_correlation_id
 
 
@@ -17,11 +18,12 @@ class CourseClient:
         self._base_url = (base_url or settings.course_service_url).rstrip("/")
 
     async def get_enrollment_context(self, *, course_id: UUID) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(
-                f"{self._base_url}/internal/{course_id}/enrollment-context",
-                headers=self._headers(),
-            )
+        response = await inter_service_request(
+            "GET",
+            f"{self._base_url}/internal/{course_id}/enrollment-context",
+            timeout=10.0,
+            headers=self._headers(),
+        )
         payload = _parse_payload(response)
         if response.is_error or payload is None or "data" not in payload:
             _raise_remote_error(response, payload, default_code="COURSE_SERVICE_ERROR")

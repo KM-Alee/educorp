@@ -8,6 +8,7 @@ import httpx
 from app.config import settings
 from app.schemas.publishing import PublishManifest, PublishVersionResponse
 from educorp_common.errors import EduCorpError
+from educorp_common.inter_service_http import inter_service_request
 
 
 class PublishingClient:
@@ -32,12 +33,13 @@ class PublishingClient:
         if correlation_id:
             headers["X-Correlation-Id"] = correlation_id
 
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(
-                f"{self._base_url}/versions",
-                json=manifest.model_dump(mode="json"),
-                headers=headers,
-            )
+        response = await inter_service_request(
+            "POST",
+            f"{self._base_url}/versions",
+            timeout=10.0,
+            headers=headers,
+            json=manifest.model_dump(mode="json"),
+        )
 
         payload = _parse_payload(response)
         if response.is_error or payload is None or "data" not in payload:

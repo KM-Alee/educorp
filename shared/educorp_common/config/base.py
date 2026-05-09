@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,6 +38,14 @@ class BaseAppSettings(BaseSettings):
 
     # Kafka
     kafka_bootstrap_servers: str = "kafka:29092"
+    kafka_schema_registry_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "KAFKA_SCHEMA_REGISTRY_URL",
+            "SCHEMA_REGISTRY_URL",
+        ),
+        description="Confluent Schema Registry base URL; when set, lifecycle producers use JSON Schema encoding.",
+    )
 
     # Observability
     otel_exporter_otlp_endpoint: str = "http://jaeger:4317"

@@ -5,10 +5,8 @@ import json
 import logging
 import re
 
-import httpx
-
 from app.config import settings
-from educorp_common.errors import EduCorpError
+from educorp_common.inter_service_http import inter_service_request
 
 logger = logging.getLogger(__name__)
 
@@ -57,18 +55,19 @@ class VisionService:
             headers["Authorization"] = f"Bearer {self._api_key}"
 
         try:
-            async with httpx.AsyncClient(timeout=90) as client:
-                response = await client.post(
-                    f"{self._base_url}/chat/completions",
-                    json={
-                        "model": self._model,
-                        "messages": messages,
-                        "max_tokens": 300,
-                        "temperature": 0.1,
-                    },
-                    headers=headers,
-                )
-        except httpx.RequestError as exc:
+            response = await inter_service_request(
+                "POST",
+                f"{self._base_url}/chat/completions",
+                timeout=90.0,
+                headers=headers,
+                json={
+                    "model": self._model,
+                    "messages": messages,
+                    "max_tokens": 300,
+                    "temperature": 0.1,
+                },
+            )
+        except Exception as exc:
             logger.warning("NanoGPT vision request error: %s", exc)
             return {}
 

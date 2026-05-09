@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.models.outbox import OutboxEvent
+from educorp_common.kafka_json_schema_sr import KafkaJsonSchemaPublisher
 from educorp_common.outbox import OutboxRelay
 
 logger = structlog.get_logger()
@@ -18,13 +19,18 @@ logger = structlog.get_logger()
 class AuthOutboxRelay:
     def __init__(self, session_factory: async_sessionmaker) -> None:
         self._session_factory = session_factory
+        self._kafka_topic = settings.user_lifecycle_topic
         self._producer: AIOKafkaProducer | None = None
+        self._schema_registry: KafkaJsonSchemaPublisher | None = None
         self._task: asyncio.Task | None = None
         self._stopped = asyncio.Event()
 
     async def start(self) -> None:
         self._producer = AIOKafkaProducer(bootstrap_servers=settings.kafka_bootstrap_servers)
         await self._producer.start()
+        if settings.kafka_schema_registry_url:
+            self._schema_registry = KafkaJsonSchemaPublisher(settings.kafka_schema_registry_url)
+            await self._schema_registry.ensure_topic(self._kafka_topic)
         self._task = asyncio.create_task(self._run())
 
     async def stop(self) -> None:
@@ -35,6 +41,9 @@ class AuthOutboxRelay:
                 await self._task
         if self._producer is not None:
             await self._producer.stop()
+        if self._schema_registry is not None:
+            await self._schema_registry.aclose()
+            self._schema_registry = None
 
     async def _run(self) -> None:
         assert self._producer is not None
@@ -51,7 +60,9 @@ class AuthOutboxRelay:
 
     async def _publish(self, event) -> None:
         assert self._producer is not None
-        await self._producer.send_and_wait(
-            settings.user_lifecycle_topic,
-            json.dumps(event.model_dump(mode="json")).encode("utf-8"),
-        )
+        payload = event.model_dump(mode="json")
+        if self._schema_registry is not None:
+            body = await self._schema_registry.encode_domain_event(self._kafka_topic, payload)
+        else:
+            body = json.dumps(payload).encode("utf-8")
+        await self._producer.send_and_wait(self._kafka_topic, body)

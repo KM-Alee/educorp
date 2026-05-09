@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-import httpx
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +13,7 @@ from app.repositories.module_repository import ModuleRepository
 from app.services.storage_service import StorageService
 from educorp_common.middleware.correlation import get_correlation_id
 from educorp_common.errors import ForbiddenError, NotFoundError, ValidationError
+from educorp_common.inter_service_http import inter_service_request
 
 logger = structlog.get_logger()
 
@@ -195,16 +195,17 @@ class AssetService:
         if "student" not in caller_roles:
             return False
 
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(
-                f"{settings.enrollment_service_url}/internal/courses/{course_id}/students/{caller_id}/enrollment-status",
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                    "X-Internal-Service-Token": settings.internal_service_token,
-                    "X-Correlation-Id": get_correlation_id(),
-                },
-            )
+        response = await inter_service_request(
+            "GET",
+            f"{settings.enrollment_service_url}/internal/courses/{course_id}/students/{caller_id}/enrollment-status",
+            timeout=10.0,
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "X-Internal-Service-Token": settings.internal_service_token,
+                "X-Correlation-Id": get_correlation_id(),
+            },
+        )
 
         try:
             payload = response.json() if response.content else None

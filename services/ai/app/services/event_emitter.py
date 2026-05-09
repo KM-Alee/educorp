@@ -39,10 +39,14 @@ async def emit_event(producer: AIOKafkaProducer | None, event: dict[str, Any]) -
     if producer is None:
         return
     try:
-        await producer.send_and_wait(
-            settings.ai_usage_topic,
-            json.dumps(event).encode("utf-8"),
-        )
+        from app.dependencies import get_kafka_schema_publisher
+
+        sr = get_kafka_schema_publisher()
+        if sr is not None:
+            encoded = await sr.encode_domain_event(settings.ai_usage_topic, event)
+        else:
+            encoded = json.dumps(event).encode("utf-8")
+        await producer.send_and_wait(settings.ai_usage_topic, encoded)
     except Exception as exc:
         logger.warning("Failed to emit AI usage event", exc_info=exc)
 
